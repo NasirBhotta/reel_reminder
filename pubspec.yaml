@@ -1,0 +1,27 @@
+name: reel_reminder
+description: "Save links from other apps and find your saved content by date."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  cloud_firestore: ^6.10.0
+  equatable: ^2.1.0
+  firebase_analytics: ^12.6.0
+  firebase_auth: ^6.7.0
+  firebase_core: ^4.15.0
+  firebase_crashlytics: ^5.4.0
+  flutter:
+    sdk: flutter
+  flutter_bloc: ^9.1.1
+  url_launcher: ^6.3.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

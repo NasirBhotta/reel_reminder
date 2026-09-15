@@ -1,0 +1,67 @@
+{
+  "project_info": {
+    "project_number": "196168389204",
+    "project_id": "fir-284f8",
+    "storage_bucket": "fir-284f8.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:196168389204:android:fb2d0c351f413e2e0e13c1",
+        "android_client_info": {
+          "package_name": "com.example.agent_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDebOrzb5YY1OXos-6eM62hZyE4uz8R4EM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:196168389204:android:30eded8bbd4a903e0e13c1",
+        "android_client_info": {
+          "package_name": "com.example.reel_reminder"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDebOrzb5YY1OXos-6eM62hZyE4uz8R4EM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:196168389204:android:ab09e1c8426580710e13c1",
+        "android_client_info": {
+          "package_name": "com.google.firebase.presents.demo"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDebOrzb5YY1OXos-6eM62hZyE4uz8R4EM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

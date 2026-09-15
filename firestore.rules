@@ -1,0 +1,38 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function owner(uid) { return request.auth != null && request.auth.uid == uid; }
+    match /users/{uid} {
+      allow read: if owner(uid);
+      allow create: if owner(uid) && request.resource.data.keys().hasOnly(['plan'])
+        && request.resource.data.plan == 'free';
+      // Plans are managed by a trusted backend when billing is introduced.
+      allow update, delete: if false;
+      match /saved_items/{itemId} {
+        function valid(data) {
+          return data.keys().hasAll(['userId', 'url', 'sharedText', 'title', 'thumbnailUrl',
+              'platform', 'createdAt', 'updatedAt', 'clientCreatedAt', 'isFavorite'])
+            && data.keys().hasOnly(['userId', 'url', 'sharedText', 'title', 'thumbnailUrl',
+              'platform', 'createdAt', 'updatedAt', 'clientCreatedAt', 'isFavorite'])
+            && data.userId == uid
+            && data.url is string && data.url.size() <= 8192
+            && data.url.matches('https?://[^\\s]+')
+            && (data.sharedText == null || (data.sharedText is string && data.sharedText.size() <= 20000))
+            && (data.title == null || (data.title is string && data.title.size() <= 500))
+            && (data.thumbnailUrl == null || (data.thumbnailUrl is string && data.thumbnailUrl.size() <= 8192 && data.thumbnailUrl.matches('https://[^\\s]+')))
+            && data.platform in ['tiktok', 'instagram', 'facebook', 'youtube', 'x', 'reddit', 'website']
+            && data.isFavorite is bool
+            && data.createdAt is timestamp && data.updatedAt is timestamp
+            && data.clientCreatedAt is timestamp;
+        }
+        allow read, delete: if owner(uid);
+        allow create: if owner(uid) && valid(request.resource.data)
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time;
+        allow update: if owner(uid) && valid(request.resource.data)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isFavorite', 'updatedAt'])
+          && request.resource.data.updatedAt == request.time;
+      }
+    }
+  }
+}

@@ -1,0 +1,37 @@
+{
+    "flutter":  {
+                    "platforms":  {
+                                      "android":  {
+                                                      "default":  {
+                                                                      "projectId":  "fir-284f8",
+                                                                      "appId":  "1:196168389204:android:30eded8bbd4a903e0e13c1",
+                                                                      "fileOutput":  "android/app/google-services.json"
+                                                                  }
+                                                  },
+                                      "dart":  {
+                                                   "lib/firebase_options.dart":  {
+                                                                                     "projectId":  "fir-284f8",
+                                                                                     "configurations":  {
+                                                                                                            "android":  "1:196168389204:android:30eded8bbd4a903e0e13c1",
+                                                                                                            "ios":  "1:196168389204:ios:33cae9025fa1eddc0e13c1"
+                                                                                                        }
+                                                                                 }
+                                               }
+                                  }
+                },
+    "firestore":  {
+                      "indexes":  "firestore.indexes.json",
+                      "rules":  "firestore.rules"
+                  },
+    "emulators":  {
+                      "firestore":  {
+                                        "port":  8080
+                                    },
+                      "ui":  {
+                                 "enabled":  false
+                             },
+                      "auth":  {
+                                   "port":  9099
+                               }
+                  }
+}
