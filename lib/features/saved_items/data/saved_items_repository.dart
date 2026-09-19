@@ -45,7 +45,11 @@ class FirestoreSavedItemsRepository implements SavedItemsRepository {
         .snapshots(includeMetadataChanges: true)
         .listen(
           (doc) {
-            if (accepted(doc) && !completer.isCompleted) completer.complete();
+            if (doc.metadata.hasPendingWrites &&
+                accepted(doc) &&
+                !completer.isCompleted) {
+              completer.complete();
+            }
           },
           onError: (Object e, StackTrace s) {
             if (!completer.isCompleted) completer.completeError(e, s);
@@ -55,15 +59,31 @@ class FirestoreSavedItemsRepository implements SavedItemsRepository {
       unawaited(
         operation()
             .then((_) async {
-              await committed?.call();
               if (!completer.isCompleted) completer.complete();
+              try {
+                await committed?.call();
+              } catch (e, s) {
+                // The write succeeded. Keep the inbox entry for an idempotent retry.
+                unawaited(telemetry.failure('share_confirmation', e, s));
+                if (!_failures.isClosed) {
+                  _failures.add(
+                    'Your link was saved. Tap refresh to finish processing the share.',
+                  );
+                }
+              }
             })
             .catchError((Object e, StackTrace s) {
               if (!completer.isCompleted) {
                 completer.completeError(e, s);
               } else if (!_failures.isClosed) {
                 _failures.add(
-                  'A queued change was rejected by the server. Please retry.',
+                  e is FirebaseException &&
+                          const [
+                            'permission-denied',
+                            'unauthenticated',
+                          ].contains(e.code)
+                      ? 'Could not sync this change. Sign in again and retry.'
+                      : 'A queued change could not sync. Tap refresh to retry.',
                 );
               }
               unawaited(telemetry.failure('firestore_write', e, s));

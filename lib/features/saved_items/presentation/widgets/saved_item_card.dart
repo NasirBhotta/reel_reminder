@@ -16,7 +16,7 @@ class SavedItemCard extends StatelessWidget {
         : item.sharedText?.trim().isNotEmpty == true &&
               item.sharedText!.trim() != item.url
         ? item.sharedText!
-        : Uri.parse(item.url).host;
+        : Uri.tryParse(item.url)?.host ?? 'Saved link';
     return Card(
       clipBehavior: Clip.antiAlias,
       margin: const EdgeInsets.only(bottom: 12),
@@ -35,8 +35,14 @@ class SavedItemCard extends StatelessWidget {
                     color: theme.colorScheme.primary,
                   ),
                   const SizedBox(width: 8),
-                  Text(item.platform.label, style: theme.textTheme.labelLarge),
-                  const Spacer(),
+                  Expanded(
+                    child: Text(
+                      item.platform.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelLarge,
+                    ),
+                  ),
                   if (item.pending)
                     const Tooltip(
                       message: 'Waiting to sync',

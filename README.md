@@ -1,5 +1,8 @@
 # Reel Reminder
 
+Current version: **0.0.2+2**. See [V0_0_2_REPORT.md](V0_0_2_REPORT.md)
+for this release's changes and validation limits.
+
 An Android-first Flutter MVP: share a link into the app, save it immediately,
 and find it later by date. Material 3, email/password Firebase authentication,
 Firestore, event/state BLoCs, Analytics, and Crashlytics. No scraping, AI, billing,
@@ -94,7 +97,8 @@ intent may intentionally save the same URL again.
 Items load in batches of 100. **Load older finds** expands the loaded history.
 Search and date filters apply to loaded items; this scope is shown in the UI.
 Weeks start Monday. Calendar constructors provide local midnight boundaries
-without assuming all days are 24 hours. A minute/resume refresh handles date changes.
+without assuming all days are 24 hours. A local-midnight timer and resume refresh
+handle date changes without rebuilding the library every minute.
 Theme selection lasts for the current app session; the default follows the device.
 
 ## Data and security

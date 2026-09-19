@@ -1,7 +1,7 @@
 name: reel_reminder
 description: "Save links from other apps and find your saved content by date."
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.0.2+2
 
 environment:
   sdk: ^3.12.2

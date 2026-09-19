@@ -28,7 +28,7 @@ Future<void> main() async {
     FlutterError.onError = (details) {
       FlutterError.presentError(details);
       unawaited(
-        telemetry.failure(
+        telemetry.fatalFailure(
           'flutter_error',
           details.exception,
           details.stack ?? StackTrace.current,
@@ -36,7 +36,7 @@ Future<void> main() async {
       );
     };
     PlatformDispatcher.instance.onError = (error, stack) {
-      unawaited(telemetry.failure('uncaught_error', error, stack));
+      unawaited(telemetry.fatalFailure('uncaught_error', error, stack));
       return true;
     };
     runApp(

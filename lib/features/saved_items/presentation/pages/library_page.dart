@@ -32,6 +32,7 @@ class LibraryPage extends StatefulWidget {
 class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
   int _tab = 0;
   bool _draining = false;
+  bool _drainAgain = false;
   Timer? _clock;
   final _search = TextEditingController();
   @override
@@ -40,8 +41,17 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     widget.shares.listen(_drain);
     unawaited(_drain());
-    _clock = Timer.periodic(const Duration(minutes: 1), (_) {
-      if (mounted) setState(() {});
+    _scheduleDateRefresh();
+  }
+
+  void _scheduleDateRefresh() {
+    _clock?.cancel();
+    final now = DateTime.now();
+    final midnight = DateTime(now.year, now.month, now.day + 1);
+    _clock = Timer(midnight.difference(now), () {
+      if (!mounted) return;
+      setState(() {});
+      _scheduleDateRefresh();
     });
   }
 
@@ -58,19 +68,26 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       setState(() {});
+      _scheduleDateRefresh();
       unawaited(_drain());
     }
   }
 
   Future<void> _drain() async {
-    if (_draining) return;
+    if (_draining) {
+      _drainAgain = true;
+      return;
+    }
     _draining = true;
     try {
-      final pending = await widget.shares.pending(widget.uid);
-      if (!mounted) return;
-      for (final share in pending) {
-        context.read<SavedItemsBloc>().add(ShareReceived(share));
-      }
+      do {
+        _drainAgain = false;
+        final pending = await widget.shares.pending(widget.uid);
+        if (!mounted) return;
+        for (final share in pending) {
+          context.read<SavedItemsBloc>().add(ShareReceived(share));
+        }
+      } while (_drainAgain && mounted);
     } on MissingPluginException {
       /* iOS share extension is a future platform adapter. */
     } catch (e, s) {
@@ -91,10 +108,17 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
     try {
       switch (action) {
         case ItemAction.open:
-          if (!await launchUrl(
-            Uri.parse(item.url),
-            mode: LaunchMode.externalApplication,
-          )) {
+          final uri = UrlParser.parse(item.url);
+          var opened = false;
+          try {
+            opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+          } on PlatformException {
+            // A broken native handler can still leave a browser available.
+          }
+          if (!opened) {
+            opened = await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
+          }
+          if (!opened) {
             throw StateError('No link handler');
           }
           unawaited(widget.telemetry.event('item_opened'));
@@ -128,7 +152,11 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
     } catch (e, s) {
       unawaited(widget.telemetry.failure('item_action', e, s));
       if (mounted) {
-        _message('Could not complete that action. Please try again.');
+        _message(
+          action == ItemAction.open
+              ? 'Could not open this link. Try copying it into your browser.'
+              : 'Could not complete that action. Please try again.',
+        );
       }
     }
   }
@@ -287,6 +315,7 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
         await _drain();
       },
       child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(20),
         itemCount: items.length,
         itemBuilder: (context, index) {
@@ -296,6 +325,7 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
               index == 0 ||
               DateHistory.group(items[index - 1].createdAt, now) != group;
           return Column(
+            key: ValueKey(item.id),
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (header)

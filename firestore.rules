@@ -30,6 +30,8 @@ service cloud.firestore {
           && request.resource.data.createdAt == request.time
           && request.resource.data.updatedAt == request.time;
         allow update: if owner(uid) && valid(request.resource.data)
+          && resource.data.userId == uid
+          && request.resource.data.userId == resource.data.userId
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isFavorite', 'updatedAt'])
           && request.resource.data.updatedAt == request.time;
       }

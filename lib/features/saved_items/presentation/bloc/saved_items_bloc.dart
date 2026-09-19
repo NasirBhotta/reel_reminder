@@ -114,33 +114,46 @@ class SavedItemsBloc extends Bloc<SavedItemsEvent, SavedItemsState> {
         state.copy(items: List.unmodifiable(event.items), loading: false),
       ),
     );
-    on<ItemsFailed>(
-      (event, emit) => emit(state.copy(loading: false, message: event.message)),
-    );
+    on<ItemsFailed>((event, emit) {
+      // Allow retained inbox entries to be retried after an eventual rejection.
+      _handledShares.clear();
+      emit(state.copy(loading: false, message: event.message));
+    });
     on<ShareReceived>((event, emit) async {
       final share = event.share;
-      if (!_inFlight.add(share.id)) return;
+      if (_handledShares.contains(share.id) || !_inFlight.add(share.id)) return;
       String? normalized;
       try {
-        unawaited(telemetry.event('content_shared_to_app'));
+        unawaited(telemetry.event('share_received'));
         final uri = UrlParser.parse(share.text);
         normalized = uri.toString();
         if (!_acceptedShares.contains(share.id) &&
             !_duplicates.accept(normalized, share.receivedAt)) {
           await shares.acknowledge(share.id);
+          _handledShares.add(share.id);
           emit(state.copy(message: 'Already saved just now.'));
           return;
         }
         _acceptedShares.add(share.id);
         final confirmed = await repository.save(share.id, uri, share.text);
         if (confirmed) await shares.acknowledge(share.id);
+        _handledShares.add(share.id);
         unawaited(telemetry.event('item_saved'));
         emit(
           state.copy(message: 'Saved. Offline changes sync when connected.'),
         );
-      } on FormatException catch (e) {
-        await shares.acknowledge(share.id);
-        emit(state.copy(message: e.message));
+      } on FormatException {
+        try {
+          await shares.acknowledge(share.id);
+          _handledShares.add(share.id);
+        } catch (e, s) {
+          unawaited(telemetry.failure('invalid_share_ack', e, s));
+        }
+        emit(
+          state.copy(
+            message: 'Share text containing a valid http or https link.',
+          ),
+        );
       } catch (e, s) {
         _acceptedShares.remove(share.id);
         if (normalized != null) _duplicates.forget(normalized);
@@ -166,15 +179,19 @@ class SavedItemsBloc extends Bloc<SavedItemsEvent, SavedItemsState> {
       emit(state.copy(query: event.query));
     });
     on<FavoriteRequested>((event, emit) async {
+      if (!_changingItems.add(event.item.id)) return;
       try {
         await repository.favorite(event.item);
         unawaited(telemetry.event('item_favorited'));
       } catch (e, s) {
         unawaited(telemetry.failure('favorite', e, s));
         emit(state.copy(message: 'Could not update favorite. Try again.'));
+      } finally {
+        _changingItems.remove(event.item.id);
       }
     });
     on<DeleteRequested>((event, emit) async {
+      if (!_changingItems.add(event.item.id)) return;
       try {
         await repository.delete(event.item.id);
         await shares.acknowledge(event.item.id);
@@ -182,6 +199,8 @@ class SavedItemsBloc extends Bloc<SavedItemsEvent, SavedItemsState> {
       } catch (e, s) {
         unawaited(telemetry.failure('delete', e, s));
         emit(state.copy(message: 'Could not delete item. Try again.'));
+      } finally {
+        _changingItems.remove(event.item.id);
       }
     });
     if (repository is FirestoreSavedItemsRepository) {
@@ -197,6 +216,9 @@ class SavedItemsBloc extends Bloc<SavedItemsEvent, SavedItemsState> {
   final _duplicates = DuplicateGuard();
   final _inFlight = <String>{};
   final _acceptedShares = <String>{};
+  // Each BLoC belongs to one UID; duplicate state never crosses accounts.
+  final _handledShares = <String>{};
+  final _changingItems = <String>{};
   StreamSubscription<List<SavedItem>>? _subscription;
   StreamSubscription<String>? _failures;
   @override

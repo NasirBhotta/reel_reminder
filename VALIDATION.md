@@ -1,4 +1,11 @@
-# Validation — 15 September 2026
+# Version 0.0.2 — 19 September 2026
+
+No tests were added, modified or run for this release, per user instruction.
+See [V0_0_2_REPORT.md](V0_0_2_REPORT.md) for current changes, validation results,
+and remaining limitations. The results below are historical, not a claim that
+the current changes passed those tests or device acceptance checks.
+
+# Historical validation — 15 September 2026
 
 ## Passed
 

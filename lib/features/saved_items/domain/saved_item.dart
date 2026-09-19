@@ -41,7 +41,17 @@ class SavedItem {
       pending: doc.metadata.hasPendingWrites,
     );
   }
-  bool matches(String query) => [title, sharedText, url, platform.label]
-      .whereType<String>()
-      .any((value) => value.toLowerCase().contains(query.trim().toLowerCase()));
+  bool matches(String query) {
+    String normalize(String value) =>
+        value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+    final needle = normalize(query);
+    return needle.isEmpty ||
+        [
+          title,
+          sharedText,
+          url,
+          platform.label,
+          if (platform == ContentPlatform.x) 'Twitter',
+        ].whereType<String>().any((value) => normalize(value).contains(needle));
+  }
 }
