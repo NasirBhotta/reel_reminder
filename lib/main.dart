@@ -5,11 +5,14 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'core/services/share_service.dart';
+import 'core/services/link_metadata_service.dart';
 import 'core/services/telemetry.dart';
 import 'features/auth/data/auth_repository.dart';
 import 'features/auth/presentation/bloc/auth_bloc.dart';
 import 'features/auth/presentation/pages/auth_page.dart';
+import 'features/onboarding/presentation/onboarding_page.dart';
 import 'features/saved_items/data/saved_items_repository.dart';
 import 'features/saved_items/presentation/bloc/saved_items_bloc.dart';
 import 'features/saved_items/presentation/pages/library_page.dart';
@@ -39,10 +42,17 @@ Future<void> main() async {
       unawaited(telemetry.fatalFailure('uncaught_error', error, stack));
       return true;
     };
+    SharedPreferences? preferences;
+    try {
+      preferences = await SharedPreferences.getInstance();
+    } catch (_) {
+      // A storage failure should not prevent the core app from starting.
+    }
     runApp(
       MainApp(
         auth: AuthRepository(FirebaseAuth.instance, FirebaseFirestore.instance),
         telemetry: telemetry,
+        preferences: preferences,
       ),
     );
   } catch (_) {
@@ -70,9 +80,15 @@ Future<void> main() async {
 }
 
 class MainApp extends StatefulWidget {
-  const MainApp({super.key, required this.auth, required this.telemetry});
+  const MainApp({
+    super.key,
+    required this.auth,
+    required this.telemetry,
+    required this.preferences,
+  });
   final AuthRepository auth;
   final Telemetry telemetry;
+  final SharedPreferences? preferences;
   @override
   State<MainApp> createState() => _MainAppState();
 }
@@ -80,6 +96,24 @@ class MainApp extends StatefulWidget {
 class _MainAppState extends State<MainApp> {
   ThemeMode _theme = ThemeMode.system;
   final _shares = ShareService();
+  late bool _onboardingDone;
+
+  @override
+  void initState() {
+    super.initState();
+    _onboardingDone =
+        widget.preferences?.getBool('onboarding_v1_done') ?? false;
+  }
+
+  Future<void> _finishOnboarding() async {
+    if (!_onboardingDone) setState(() => _onboardingDone = true);
+    try {
+      await widget.preferences?.setBool('onboarding_v1_done', true);
+    } catch (_) {
+      // Continue into the app even if local preference storage is unavailable.
+    }
+  }
+
   ThemeData _themeData(Brightness brightness) => ThemeData(
     useMaterial3: true,
     brightness: brightness,
@@ -108,44 +142,47 @@ class _MainAppState extends State<MainApp> {
       theme: _themeData(Brightness.light),
       darkTheme: _themeData(Brightness.dark),
       themeMode: _theme,
-      home: BlocConsumer<AuthBloc, AuthState>(
-        listener: (context, state) {
-          if (state.user != null && state.error != null) {
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(SnackBar(content: Text(state.error!)));
-          }
-        },
-        builder: (context, state) {
-          if (!state.ready) {
-            return const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            );
-          }
-          if (state.user == null) return const AuthPage();
-          final uid = state.user!.uid;
-          return BlocProvider(
-            key: ValueKey(uid),
-            create: (_) => SavedItemsBloc(
-              FirestoreSavedItemsRepository(
-                FirebaseFirestore.instance,
-                uid,
-                widget.telemetry,
-                _shares.acknowledge,
-              ),
-              _shares,
-              widget.telemetry,
-            )..add(ItemsStarted()),
-            child: LibraryPage(
-              uid: uid,
-              shares: _shares,
-              telemetry: widget.telemetry,
-              themeMode: _theme,
-              onThemeChanged: (mode) => setState(() => _theme = mode),
+      home: !_onboardingDone
+          ? OnboardingPage(onFinished: _finishOnboarding)
+          : BlocConsumer<AuthBloc, AuthState>(
+              listener: (context, state) {
+                if (state.user != null && state.error != null) {
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(SnackBar(content: Text(state.error!)));
+                }
+              },
+              builder: (context, state) {
+                if (!state.ready) {
+                  return const Scaffold(
+                    body: Center(child: CircularProgressIndicator()),
+                  );
+                }
+                if (state.user == null) return const AuthPage();
+                final uid = state.user!.uid;
+                return BlocProvider(
+                  key: ValueKey(uid),
+                  create: (_) => SavedItemsBloc(
+                    FirestoreSavedItemsRepository(
+                      FirebaseFirestore.instance,
+                      uid,
+                      widget.telemetry,
+                      _shares.acknowledge,
+                      LinkMetadataService(),
+                    ),
+                    _shares,
+                    widget.telemetry,
+                  )..add(ItemsStarted()),
+                  child: LibraryPage(
+                    uid: uid,
+                    shares: _shares,
+                    telemetry: widget.telemetry,
+                    themeMode: _theme,
+                    onThemeChanged: (mode) => setState(() => _theme = mode),
+                  ),
+                );
+              },
             ),
-          );
-        },
-      ),
     ),
   );
 }

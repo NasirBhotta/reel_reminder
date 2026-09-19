@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../../core/services/link_metadata_service.dart';
 import '../../../core/services/telemetry.dart';
 import '../../../core/utils/content.dart';
 import '../domain/saved_item.dart';
@@ -17,10 +18,12 @@ class FirestoreSavedItemsRepository implements SavedItemsRepository {
     this.uid,
     this.telemetry,
     this.onCommitted,
+    this.metadataService,
   ) : collection = firestore.collection('users/$uid/saved_items');
   final String uid;
   final Telemetry telemetry;
   final Future<void> Function(String) onCommitted;
+  final LinkMetadataService metadataService;
   final CollectionReference<Map<String, dynamic>> collection;
   @override
   Stream<List<SavedItem>> watch({int limit = 100}) => collection
@@ -99,11 +102,14 @@ class FirestoreSavedItemsRepository implements SavedItemsRepository {
   final _confirmations =
       <String, StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>>{};
   Stream<String> get failures => _failures.stream;
+  bool _disposed = false;
   Future<void> dispose() async {
+    _disposed = true;
     for (final subscription in _confirmations.values) {
       await subscription.cancel();
     }
     _confirmations.clear();
+    metadataService.close();
     await _failures.close();
   }
 
@@ -113,6 +119,7 @@ class FirestoreSavedItemsRepository implements SavedItemsRepository {
     try {
       final existing = await ref.get(const GetOptions(source: Source.cache));
       if (existing.exists) {
+        _startMetadataIfNeeded(id, url, existing.data());
         if (!existing.metadata.hasPendingWrites) return true;
         // Reattach confirmation after process restart without rewriting timestamps.
         _confirmations.putIfAbsent(
@@ -162,7 +169,11 @@ class FirestoreSavedItemsRepository implements SavedItemsRepository {
         'url': url.toString(),
         'sharedText': text,
         'title': null,
+        'description': null,
         'thumbnailUrl': null,
+        'siteName': null,
+        'domain': url.host.toLowerCase(),
+        'metadataStatus': 'pending',
         'platform': PlatformDetector.detect(url).name,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
@@ -172,7 +183,43 @@ class FirestoreSavedItemsRepository implements SavedItemsRepository {
       (doc) => doc.exists,
       committed: () => onCommitted(id),
     );
+    _startMetadataIfNeeded(id, url, const {'metadataStatus': 'pending'});
     return false;
+  }
+
+  final _metadataInFlight = <String>{};
+
+  void _startMetadataIfNeeded(String id, Uri url, Map<String, dynamic>? data) {
+    if (data?['metadataStatus'] != 'pending' || !_metadataInFlight.add(id)) {
+      return;
+    }
+    unawaited(_fetchAndStoreMetadata(id, url));
+  }
+
+  Future<void> _fetchAndStoreMetadata(String id, Uri url) async {
+    try {
+      final metadata = await metadataService.fetch(url);
+      if (_disposed) return;
+      await collection.doc(id).update({
+        'title': metadata?.title,
+        'description': metadata?.description,
+        'thumbnailUrl': metadata?.imageUrl,
+        'siteName': metadata?.siteName,
+        'domain': metadata?.domain ?? url.host.toLowerCase(),
+        'metadataStatus': metadata?.hasPreview == true
+            ? 'complete'
+            : 'unavailable',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } on FirebaseException catch (e, s) {
+      if (e.code != 'not-found') {
+        unawaited(telemetry.failure('metadata_update', e, s));
+      }
+    } catch (e, s) {
+      unawaited(telemetry.failure('metadata_fetch', e, s));
+    } finally {
+      _metadataInFlight.remove(id);
+    }
   }
 
   @override

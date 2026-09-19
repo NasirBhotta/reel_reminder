@@ -9,6 +9,7 @@ import '../../../../core/utils/content.dart';
 import '../../../profile/presentation/profile_page.dart';
 import '../../domain/saved_item.dart';
 import '../bloc/saved_items_bloc.dart';
+import 'saved_item_details_page.dart';
 import '../widgets/saved_item_card.dart';
 
 class LibraryPage extends StatefulWidget {
@@ -107,6 +108,15 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
     final bloc = context.read<SavedItemsBloc>();
     try {
       switch (action) {
+        case ItemAction.details:
+          await Navigator.of(context).push<void>(
+            MaterialPageRoute(
+              builder: (_) => BlocProvider.value(
+                value: bloc,
+                child: SavedItemDetailsPage(itemId: item.id, onAction: _action),
+              ),
+            ),
+          );
         case ItemAction.open:
           final uri = UrlParser.parse(item.url);
           var opened = false;
@@ -214,13 +224,31 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
                     padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
                     child: TextField(
                       controller: _search,
-                      decoration: const InputDecoration(
-                        prefixIcon: Icon(Icons.search),
-                        hintText: 'Title, link, text, or platform',
+                      autofocus: true,
+                      textInputAction: TextInputAction.search,
+                      decoration: InputDecoration(
+                        prefixIcon: const Icon(Icons.search),
+                        hintText: 'Search title, text, source, or link',
+                        suffixIcon: _search.text.isEmpty
+                            ? null
+                            : IconButton(
+                                tooltip: 'Clear search',
+                                onPressed: () {
+                                  _search.clear();
+                                  setState(() {});
+                                  context.read<SavedItemsBloc>().add(
+                                    SearchChanged(''),
+                                  );
+                                },
+                                icon: const Icon(Icons.clear_rounded),
+                              ),
                       ),
-                      onChanged: (query) => context.read<SavedItemsBloc>().add(
-                        SearchChanged(query),
-                      ),
+                      onChanged: (query) {
+                        setState(() {});
+                        context.read<SavedItemsBloc>().add(
+                          SearchChanged(query),
+                        );
+                      },
                     ),
                   ),
                 SingleChildScrollView(
@@ -254,7 +282,9 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      '${state.items.length} loaded · search and filters use loaded items',
+                      _tab == 1 && state.query.trim().isNotEmpty
+                          ? '${state.visible(DateTime.now(), search: true).length} results in loaded items'
+                          : '${state.items.length} loaded · filters use loaded items',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ),
@@ -288,15 +318,19 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
               Text(
                 state.items.isEmpty
                     ? 'Your next good find belongs here.'
-                    : 'No finds match yet.',
+                    : _tab == 1 && state.query.trim().isNotEmpty
+                    ? 'No search results'
+                    : 'No finds in this date range',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 12),
               Text(
                 state.items.isEmpty
-                    ? 'In YouTube, Instagram, or your browser, tap Share and choose Reel Reminder.'
-                    : 'Try another date filter or search term.',
+                    ? 'Open TikTok, Instagram, YouTube, or another app → tap Share → choose Reel Reminder.'
+                    : _tab == 1 && state.query.trim().isNotEmpty
+                    ? 'Try a shorter title, source, or link.'
+                    : 'Try another date filter.',
                 textAlign: TextAlign.center,
               ),
               if (state.message != null)
@@ -330,10 +364,12 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
             children: [
               if (header)
                 Padding(
-                  padding: const EdgeInsets.only(top: 8, bottom: 12),
+                  padding: const EdgeInsets.only(top: 10, bottom: 12),
                   child: Text(
                     group,
-                    style: Theme.of(context).textTheme.titleSmall,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
               SavedItemCard(

@@ -46,8 +46,14 @@ class _ProfilePageState extends State<ProfilePage> {
           child: StreamBuilder<Plan>(
             stream: _plan,
             builder: (context, snapshot) => ListTile(
-              leading: const Icon(Icons.workspace_premium_outlined),
-              title: const Text('Your plan'),
+              leading: CircleAvatar(
+                child: Icon(
+                  snapshot.data == Plan.pro
+                      ? Icons.workspace_premium_rounded
+                      : Icons.person_outline_rounded,
+                ),
+              ),
+              title: const Text('Current plan'),
               subtitle: Text(
                 snapshot.hasError
                     ? 'Plan unavailable. Try again when connected.'
@@ -55,6 +61,33 @@ class _ProfilePageState extends State<ProfilePage> {
                     ? 'Pro'
                     : 'Free',
               ),
+            ),
+          ),
+        ),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.ios_share_rounded),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'How to save content',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Open a link in TikTok, Instagram, YouTube, or another app. Tap Share, then choose Reel Reminder.',
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -91,7 +124,7 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
         const SizedBox(height: 24),
         const Text(
-          'Reel Reminder · 0.0.2\nYour finds, in one place.',
+          'Reel Reminder · 0.0.3\nYour finds, in one place.',
           textAlign: TextAlign.center,
         ),
       ],

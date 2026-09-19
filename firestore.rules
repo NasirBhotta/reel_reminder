@@ -13,13 +13,22 @@ service cloud.firestore {
           return data.keys().hasAll(['userId', 'url', 'sharedText', 'title', 'thumbnailUrl',
               'platform', 'createdAt', 'updatedAt', 'clientCreatedAt', 'isFavorite'])
             && data.keys().hasOnly(['userId', 'url', 'sharedText', 'title', 'thumbnailUrl',
+              'description', 'siteName', 'domain', 'metadataStatus',
               'platform', 'createdAt', 'updatedAt', 'clientCreatedAt', 'isFavorite'])
             && data.userId == uid
             && data.url is string && data.url.size() <= 8192
             && data.url.matches('https?://[^\\s]+')
             && (data.sharedText == null || (data.sharedText is string && data.sharedText.size() <= 20000))
             && (data.title == null || (data.title is string && data.title.size() <= 500))
+            && (!data.keys().hasAny(['description']) || data.description == null
+              || (data.description is string && data.description.size() <= 1000))
             && (data.thumbnailUrl == null || (data.thumbnailUrl is string && data.thumbnailUrl.size() <= 8192 && data.thumbnailUrl.matches('https://[^\\s]+')))
+            && (!data.keys().hasAny(['siteName']) || data.siteName == null
+              || (data.siteName is string && data.siteName.size() <= 500))
+            && (!data.keys().hasAny(['domain']) || data.domain == null
+              || (data.domain is string && data.domain.size() <= 253))
+            && (!data.keys().hasAny(['metadataStatus'])
+              || data.metadataStatus in ['pending', 'complete', 'unavailable'])
             && data.platform in ['tiktok', 'instagram', 'facebook', 'youtube', 'x', 'reddit', 'website']
             && data.isFavorite is bool
             && data.createdAt is timestamp && data.updatedAt is timestamp
@@ -32,7 +41,9 @@ service cloud.firestore {
         allow update: if owner(uid) && valid(request.resource.data)
           && resource.data.userId == uid
           && request.resource.data.userId == resource.data.userId
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isFavorite', 'updatedAt'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'isFavorite', 'title', 'description', 'thumbnailUrl', 'siteName',
+            'domain', 'metadataStatus', 'updatedAt'])
           && request.resource.data.updatedAt == request.time;
       }
     }

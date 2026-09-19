@@ -1,11 +1,11 @@
 # Reel Reminder
 
-Current version: **0.0.2+2**. See [V0_0_2_REPORT.md](V0_0_2_REPORT.md)
+Current version: **0.0.3+3**. See [V0_0_3_REPORT.md](V0_0_3_REPORT.md)
 for this release's changes and validation limits.
 
 An Android-first Flutter MVP: share a link into the app, save it immediately,
 and find it later by date. Material 3, email/password Firebase authentication,
-Firestore, event/state BLoCs, Analytics, and Crashlytics. No scraping, AI, billing,
+Firestore, event/state BLoCs, Analytics, and Crashlytics. No authenticated scraping, AI, billing,
 or downloaded media.
 
 ## Run
