@@ -8,6 +8,7 @@ import '../domain/saved_item.dart';
 abstract class SavedItemsRepository {
   Stream<List<SavedItem>> watch({int limit = 100});
   Future<bool> save(String id, Uri url, String text);
+  Future<bool> retryMetadata(SavedItem item);
   Future<void> favorite(SavedItem item);
   Future<void> delete(String id);
 }
@@ -33,6 +34,7 @@ class FirestoreSavedItemsRepository implements SavedItemsRepository {
       .map((snapshot) {
         final items = snapshot.docs.map(SavedItem.fromDocument).toList();
         items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        _scheduleLegacyMetadata(items);
         return items;
       });
   // Wait for the local snapshot, not the server acknowledgement: offline writes
@@ -132,13 +134,7 @@ class FirestoreSavedItemsRepository implements SavedItemsRepository {
                       !doc.metadata.isFromCache) {
                     unawaited(_confirmations.remove(id)?.cancel());
                     if (doc.exists) {
-                      unawaited(
-                        onCommitted(id).catchError((Object e, StackTrace s) {
-                          unawaited(
-                            telemetry.failure('share_confirmation', e, s),
-                          );
-                        }),
-                      );
+                      unawaited(_finishCommittedShare(id, url, doc.data()));
                     } else if (!_failures.isClosed) {
                       _failures.add(
                         'A saved share could not sync. Tap refresh to retry.',
@@ -169,11 +165,7 @@ class FirestoreSavedItemsRepository implements SavedItemsRepository {
         'url': url.toString(),
         'sharedText': text,
         'title': null,
-        'description': null,
         'thumbnailUrl': null,
-        'siteName': null,
-        'domain': url.host.toLowerCase(),
-        'metadataStatus': 'pending',
         'platform': PlatformDetector.detect(url).name,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
@@ -181,29 +173,81 @@ class FirestoreSavedItemsRepository implements SavedItemsRepository {
         'isFavorite': false,
       }),
       (doc) => doc.exists,
-      committed: () => onCommitted(id),
+      committed: () async {
+        await _finishCommittedShare(id, url, const {});
+      },
     );
-    _startMetadataIfNeeded(id, url, const {'metadataStatus': 'pending'});
     return false;
   }
 
   final _metadataInFlight = <String>{};
+  final _metadataAttemptedThisSession = <String>{};
+  final _legacyMetadataQueue = <SavedItem>[];
+  bool _drainingLegacyMetadata = false;
+
+  Future<void> _finishCommittedShare(
+    String id,
+    Uri url,
+    Map<String, dynamic>? data,
+  ) async {
+    try {
+      await onCommitted(id);
+    } catch (e, s) {
+      unawaited(telemetry.failure('share_confirmation', e, s));
+    } finally {
+      _startMetadataIfNeeded(id, url, data);
+    }
+  }
+
+  void _scheduleLegacyMetadata(List<SavedItem> items) {
+    for (final item in items) {
+      if (!item.pending &&
+          item.metadataStatus == null &&
+          item.title == null &&
+          item.thumbnailUrl == null &&
+          _metadataAttemptedThisSession.add(item.id)) {
+        _legacyMetadataQueue.add(item);
+      }
+    }
+    if (!_drainingLegacyMetadata && _legacyMetadataQueue.isNotEmpty) {
+      unawaited(_drainLegacyMetadata());
+    }
+  }
+
+  Future<void> _drainLegacyMetadata() async {
+    _drainingLegacyMetadata = true;
+    try {
+      while (!_disposed && _legacyMetadataQueue.isNotEmpty) {
+        final item = _legacyMetadataQueue.removeAt(0);
+        final uri = Uri.tryParse(item.url);
+        if (uri != null && _metadataInFlight.add(item.id)) {
+          await _fetchAndStoreMetadata(item.id, uri);
+        }
+      }
+    } finally {
+      _drainingLegacyMetadata = false;
+    }
+  }
 
   void _startMetadataIfNeeded(String id, Uri url, Map<String, dynamic>? data) {
-    if (data?['metadataStatus'] != 'pending' || !_metadataInFlight.add(id)) {
+    final status = data?['metadataStatus'];
+    if ((status != null && status != 'pending') || !_metadataInFlight.add(id)) {
       return;
     }
+    _metadataAttemptedThisSession.add(id);
     unawaited(_fetchAndStoreMetadata(id, url));
   }
 
-  Future<void> _fetchAndStoreMetadata(String id, Uri url) async {
+  Future<bool> _fetchAndStoreMetadata(String id, Uri url) async {
+    var resolved = false;
     try {
       final metadata = await metadataService.fetch(url);
-      if (_disposed) return;
+      if (_disposed) return false;
+      resolved = metadata?.hasPreview == true;
       await collection.doc(id).update({
         'title': metadata?.title,
         'description': metadata?.description,
-        'thumbnailUrl': metadata?.imageUrl,
+        'thumbnailUrl': metadata?.thumbnailUrl,
         'siteName': metadata?.siteName,
         'domain': metadata?.domain ?? url.host.toLowerCase(),
         'metadataStatus': metadata?.hasPreview == true
@@ -212,14 +256,28 @@ class FirestoreSavedItemsRepository implements SavedItemsRepository {
         'updatedAt': FieldValue.serverTimestamp(),
       });
     } on FirebaseException catch (e, s) {
+      resolved = false;
       if (e.code != 'not-found') {
         unawaited(telemetry.failure('metadata_update', e, s));
+        if (e.code == 'permission-denied' && !_failures.isClosed) {
+          _failures.add('Link saved, but its preview could not be updated.');
+        }
       }
     } catch (e, s) {
+      resolved = false;
       unawaited(telemetry.failure('metadata_fetch', e, s));
     } finally {
       _metadataInFlight.remove(id);
     }
+    return resolved;
+  }
+
+  @override
+  Future<bool> retryMetadata(SavedItem item) async {
+    final uri = Uri.tryParse(item.url);
+    if (uri == null || !_metadataInFlight.add(item.id)) return false;
+    _metadataAttemptedThisSession.add(item.id);
+    return _fetchAndStoreMetadata(item.id, uri);
   }
 
   @override

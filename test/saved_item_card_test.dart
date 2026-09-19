@@ -31,7 +31,7 @@ void main() {
     expect(find.text('example.com'), findsOneWidget);
     expect(find.byTooltip('Waiting to sync'), findsOneWidget);
     await tester.tap(find.text('example.com'));
-    expect(actions, [ItemAction.open]);
+    expect(actions, [ItemAction.details]);
     await tester.tap(find.byTooltip('Favorite'));
     expect(actions.last, ItemAction.favorite);
     await tester.tap(find.byTooltip('Item actions'));

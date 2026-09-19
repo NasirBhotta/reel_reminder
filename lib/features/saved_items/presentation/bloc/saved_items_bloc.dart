@@ -49,6 +49,11 @@ class DeleteRequested extends SavedItemsEvent {
   final SavedItem item;
 }
 
+class PreviewRetryRequested extends SavedItemsEvent {
+  PreviewRetryRequested(this.item);
+  final SavedItem item;
+}
+
 class SavedItemsState extends Equatable {
   const SavedItemsState({
     this.items = const [],
@@ -136,8 +141,10 @@ class SavedItemsBloc extends Bloc<SavedItemsEvent, SavedItemsState> {
         }
         _acceptedShares.add(share.id);
         final confirmed = await repository.save(share.id, uri, share.text);
-        if (confirmed) await shares.acknowledge(share.id);
-        _handledShares.add(share.id);
+        if (confirmed) {
+          await shares.acknowledge(share.id);
+          _handledShares.add(share.id);
+        }
         unawaited(telemetry.event('item_saved'));
         emit(
           state.copy(message: 'Saved. Offline changes sync when connected.'),
@@ -201,6 +208,24 @@ class SavedItemsBloc extends Bloc<SavedItemsEvent, SavedItemsState> {
         emit(state.copy(message: 'Could not delete item. Try again.'));
       } finally {
         _changingItems.remove(event.item.id);
+      }
+    });
+    on<PreviewRetryRequested>((event, emit) async {
+      if (!_changingItems.add('preview:${event.item.id}')) return;
+      try {
+        final resolved = await repository.retryMetadata(event.item);
+        emit(
+          state.copy(
+            message: resolved
+                ? 'Preview updated.'
+                : 'No public preview was available for this link.',
+          ),
+        );
+      } catch (e, s) {
+        unawaited(telemetry.failure('metadata_retry', e, s));
+        emit(state.copy(message: 'Could not refresh this preview. Try again.'));
+      } finally {
+        _changingItems.remove('preview:${event.item.id}');
       }
     });
     if (repository is FirestoreSavedItemsRepository) {

@@ -137,6 +137,8 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
           if (mounted) _message('Link copied');
         case ItemAction.share:
           await widget.shares.share(item.url);
+        case ItemAction.retryPreview:
+          bloc.add(PreviewRetryRequested(item));
         case ItemAction.favorite:
           bloc.add(FavoriteRequested(item));
         case ItemAction.delete:

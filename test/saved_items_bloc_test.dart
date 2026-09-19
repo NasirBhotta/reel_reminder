@@ -22,6 +22,9 @@ class FakeRepository implements SavedItemsRepository {
   }
 
   @override
+  Future<bool> retryMetadata(SavedItem item) async => false;
+
+  @override
   Future<void> favorite(SavedItem item) async {}
   @override
   Future<void> delete(String id) async {}

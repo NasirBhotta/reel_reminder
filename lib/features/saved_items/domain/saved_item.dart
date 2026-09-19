@@ -25,8 +25,18 @@ class SavedItem {
   final ContentPlatform platform;
   final DateTime createdAt, updatedAt;
   final bool isFavorite, pending;
-  factory SavedItem.fromDocument(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data()!;
+  factory SavedItem.fromDocument(DocumentSnapshot<Map<String, dynamic>> doc) =>
+      SavedItem.fromData(
+        id: doc.id,
+        data: doc.data() ?? const {},
+        pending: doc.metadata.hasPendingWrites,
+      );
+
+  factory SavedItem.fromData({
+    required String id,
+    required Map<String, dynamic> data,
+    bool pending = false,
+  }) {
     String? stringValue(String key) {
       final value = data[key];
       return value is String && value.trim().isNotEmpty ? value : null;
@@ -35,9 +45,9 @@ class SavedItem {
     final created = data['clientCreatedAt'] ?? data['createdAt'];
     final local = created is Timestamp ? created.toDate() : DateTime.now();
     return SavedItem(
-      id: doc.id,
-      userId: data['userId'] as String,
-      url: data['url'] as String,
+      id: id,
+      userId: data['userId'] as String? ?? '',
+      url: data['url'] as String? ?? '',
       sharedText: stringValue('sharedText'),
       title: stringValue('title'),
       description: stringValue('description'),
@@ -53,7 +63,7 @@ class SavedItem {
       createdAt: local,
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? local,
       isFavorite: data['isFavorite'] as bool? ?? false,
-      pending: doc.metadata.hasPendingWrites,
+      pending: pending,
     );
   }
   bool matches(String query) {
@@ -101,6 +111,6 @@ class SavedItem {
   String get displaySource {
     final site = siteName?.trim();
     if (site != null && site.isNotEmpty) return site;
-    return platform == ContentPlatform.website ? displayDomain : platform.label;
+    return platform.label;
   }
 }

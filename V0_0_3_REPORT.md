@@ -3,14 +3,15 @@
 ## Changes
 
 - Updated the Flutter version to `0.0.3+3`.
-- Added a reusable `LinkMetadataService` that reads standard Open Graph,
-  Twitter-card, HTML title, and description metadata directly from the destination
+- Added a reusable `LinkMetadataService` that uses `metadata_fetch` to read
+  Open Graph, Twitter Card, JSON-LD, HTML title, and description metadata from the destination
   page. It has an eight-second timeout, a 512 KiB HTML limit, a three-redirect
   limit, content-type checks, URL validation, and DNS checks that reject local,
   private, link-local, reserved, and nonstandard-port destinations. Redirects are
   validated again. It sends no URL or page content to a third-party metadata API.
-- Kept the save path fast: the Firestore item is queued first, then metadata is
-  fetched and stored in the background. A per-repository in-flight set prevents
+- Kept the save path fast: the backward-compatible base Firestore item is queued
+  first, then metadata is fetched and stored after server confirmation. A
+  per-repository in-flight set prevents
   concurrent duplicate requests for one item. `metadataStatus` prevents normal
   timeline rebuilds from refetching previews. Failure produces an intentional
   stored fallback and never reverses the save.
@@ -18,10 +19,10 @@
   `metadataStatus`. Existing nullable title/thumbnail fields remain. Deserialization
   accepts old documents without any new fields and falls back to their URL domain,
   shared text, and existing timestamps.
-- Redesigned cards around source, domain, title, description/shared text,
-  thumbnail, platform icon, saved time, favorite, sync state, and preview state.
-  Invalid or broken image URLs collapse to a safe platform placeholder. All text
-  uses bounded lines and ellipsis in the timeline.
+- Redesigned cards as compact rows with an 84-pixel left thumbnail and title,
+  source/domain, saved time, favorite, and actions on the right. Invalid, slow,
+  missing, or broken images show a platform placeholder. Titles use two lines and
+  ellipsis, and stored raw URLs no longer dominate preview cards.
 - Added a lightweight details screen for full shared text, URL, preview, source,
   saved date, favorite, open, copy, share, and delete actions.
 - Improved search with metadata fields, normalized whitespace, a clear button,
@@ -34,7 +35,9 @@
 
 ## Firestore and backward compatibility
 
-New documents add nullable metadata fields and start with `metadataStatus: pending`.
+New documents first use the v0.0.2 schema, then add nullable metadata fields and
+`metadataStatus` in a separate background update. This keeps the core save working
+during a staged rules rollout; preview writes still require the v0.0.3 rules.
 Old documents remain readable and can still be favorited or deleted. The rules
 accept the optional v0.0.3 fields, validate their types and lengths, require HTTPS
 thumbnail URLs, and allow an owner to update only favorite/metadata fields plus
@@ -46,17 +49,20 @@ metadata updates can succeed in the configured Firebase project.
 ## Dependencies
 
 - `html ^0.15.7` for standards-based HTML metadata parsing.
+- `metadata_fetch ^0.4.2` for ordered Open Graph, Twitter Card, JSON-LD, and HTML parsing.
 - `shared_preferences ^2.5.5` for local onboarding completion.
 
-Networking uses Dart's `HttpClient`; no metadata proxy, unofficial social API, or
-extra HTTP dependency was added.
+Networking uses the existing guarded Dart `HttpClient` layer rather than the
+package's convenience fetch, preserving timeout, size, redirect, and private-host
+checks. No metadata proxy or unofficial private API was added.
 
 ## Preview reliability
 
-Generic public HTML pages with server-rendered Open Graph or ordinary meta tags
-are the reliable path. Public YouTube and Reddit pages may provide useful metadata,
-subject to their current response and regional/network policies. Instagram,
-TikTok, Facebook, X/Twitter, shortened links, bot-protected sites, JavaScript-only
+Generic public HTML pages with server-rendered Open Graph, Twitter Card, JSON-LD,
+or ordinary meta tags are the reliable path. YouTube and TikTok first use their
+public oEmbed endpoints and generic metadata fills missing fields. Reddit uses
+generic public metadata. Instagram, Facebook, X/Twitter, shortened links,
+bot-protected sites, JavaScript-only
 pages, consent pages, authenticated pages, and sites that reject the client may
 fall back to platform name, domain, shared text, and original URL. No authentication,
 restriction bypass, media download, or private social-content scraping is used.
@@ -71,10 +77,14 @@ restriction bypass, media download, or private social-content scraping is used.
 - `lib/features/profile/presentation/profile_page.dart`
 - `lib/features/saved_items/data/saved_items_repository.dart`
 - `lib/features/saved_items/domain/saved_item.dart`
+- `lib/features/saved_items/presentation/bloc/saved_items_bloc.dart`
 - `lib/features/saved_items/presentation/pages/library_page.dart`
 - `lib/features/saved_items/presentation/pages/saved_item_details_page.dart`
 - `lib/features/saved_items/presentation/widgets/saved_item_card.dart`
 - `README.md`, `VALIDATION.md`, `V0_0_3_REPORT.md`
+- `test/link_metadata_service_test.dart`
+- `test/saved_item_compatibility_test.dart`
+- `test/saved_item_card_test.dart`, `test/content_test.dart`
 
 ## Validation
 
@@ -82,17 +92,27 @@ Commands run:
 
 ```powershell
 flutter pub add html shared_preferences
+flutter pub add metadata_fetch
 dart format lib
+dart format lib test
+flutter pub get
 flutter analyze
 dart format lib/features/saved_items/domain/saved_item.dart lib/features/saved_items/data/saved_items_repository.dart lib/features/saved_items/presentation/pages/saved_item_details_page.dart
 flutter analyze
+flutter test
+dart format lib/features/saved_items/presentation/bloc/saved_items_bloc.dart
+flutter test
+flutter analyze
+flutter build apk --debug
 git diff --check
 ```
 
-The final `flutter analyze` passed with no issues. `git diff --check` passed apart
-from informational Windows line-ending warnings. Per explicit instruction, no test
-was added or run and no Android/iOS build was run. Real-device acceptance,
-Firestore emulator rules, and live metadata behavior were therefore not claimed.
+The final `flutter analyze` passed with no issues. All 29 tests passed. The first
+test run exposed an offline share retry regression; the session guard was fixed
+and the full suite passed on rerun. The Android debug build passed and produced
+`build/app/outputs/flutter-apk/app-debug.apk`. A non-failing future Kotlin plugin
+migration warning remains for the existing Firebase plugins. Real-device acceptance,
+Firestore emulator rules, and live metadata behavior were not claimed.
 
 ## Remaining limitations and suggested 0.0.4 scope
 

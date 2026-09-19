@@ -83,7 +83,7 @@ void main() {
       );
       expect(
         DateHistory.group(DateTime(2026, 9, 14), DateTime(2026, 9, 17)),
-        'Earlier This Week',
+        'This Week',
       );
     });
     test('year rollover', () {

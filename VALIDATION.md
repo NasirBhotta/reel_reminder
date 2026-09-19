@@ -1,8 +1,9 @@
 # Version 0.0.3 — 19 September 2026
 
-`flutter analyze` passed with no issues. Per user instruction, no tests were
-added or run and no Android/iOS build was run for 0.0.3. The Firestore rules were
-reviewed locally but were not deployed or exercised against the emulator. See
+`flutter analyze` passed with no issues. All 29 Flutter tests passed, including
+metadata parsing, legacy document compatibility, BLoC retry behavior, and card
+fallbacks. `flutter build apk --debug` passed. The Firestore rules were reviewed
+locally but were not deployed or exercised against the emulator. See
 [V0_0_3_REPORT.md](V0_0_3_REPORT.md) for current scope and limitations.
 
 # Version 0.0.2 — 19 September 2026

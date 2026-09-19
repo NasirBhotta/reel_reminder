@@ -3,26 +3,29 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:html/parser.dart' as html_parser;
+import 'package:metadata_fetch/metadata_fetch.dart';
+
+import '../utils/content.dart';
 
 class LinkMetadata {
   const LinkMetadata({
     this.title,
     this.description,
-    this.imageUrl,
+    this.thumbnailUrl,
     this.siteName,
     required this.domain,
   });
 
   final String? title;
   final String? description;
-  final String? imageUrl;
+  final String? thumbnailUrl;
   final String? siteName;
   final String domain;
 
   bool get hasPreview =>
       title != null ||
       description != null ||
-      imageUrl != null ||
+      thumbnailUrl != null ||
       siteName != null;
 }
 
@@ -39,6 +42,34 @@ class LinkMetadataService {
   final HttpClient _client;
 
   Future<LinkMetadata?> fetch(Uri original) async {
+    final platform = PlatformDetector.detect(original);
+    final specialized = switch (platform) {
+      ContentPlatform.youtube => await _fetchOEmbed(
+        Uri.https('www.youtube.com', '/oembed', {
+          'url': original.toString(),
+          'format': 'json',
+        }),
+        original,
+      ),
+      ContentPlatform.tiktok => await _fetchOEmbed(
+        Uri.https('www.tiktok.com', '/oembed', {'url': original.toString()}),
+        original,
+      ),
+      _ => null,
+    };
+    final generic = await _fetchGeneric(original);
+    if (specialized == null) return generic;
+    if (generic == null) return specialized;
+    return LinkMetadata(
+      title: specialized.title ?? generic.title,
+      description: specialized.description ?? generic.description,
+      thumbnailUrl: specialized.thumbnailUrl ?? generic.thumbnailUrl,
+      siteName: specialized.siteName ?? generic.siteName,
+      domain: original.host.toLowerCase(),
+    );
+  }
+
+  Future<LinkMetadata?> _fetchGeneric(Uri original) async {
     try {
       var uri = original;
       for (var redirects = 0; redirects <= 3; redirects++) {
@@ -87,35 +118,94 @@ class LinkMetadataService {
     return null;
   }
 
+  Future<LinkMetadata?> _fetchOEmbed(Uri endpoint, Uri original) async {
+    try {
+      var uri = endpoint;
+      for (var redirects = 0; redirects <= 3; redirects++) {
+        await _validatePublicUrl(uri);
+        final request = await _client.getUrl(uri).timeout(_timeout);
+        request
+          ..followRedirects = false
+          ..headers.set(HttpHeaders.acceptHeader, 'application/json');
+        final response = await request.close().timeout(_timeout);
+        if (response.isRedirect) {
+          final location = response.headers.value(HttpHeaders.locationHeader);
+          if (location == null || redirects == 3) return null;
+          uri = uri.resolve(location);
+          await response.drain<void>();
+          continue;
+        }
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          await response.drain<void>();
+          return null;
+        }
+        final bytes = <int>[];
+        await for (final chunk in response.timeout(_timeout)) {
+          if (bytes.length + chunk.length > 64 * 1024) return null;
+          bytes.addAll(chunk);
+        }
+        final decoded = jsonDecode(utf8.decode(bytes, allowMalformed: true));
+        if (decoded is! Map) return null;
+        final data = Map<String, dynamic>.from(decoded);
+        final rawImage = _clean(data['thumbnail_url'] as String?);
+        final image = rawImage == null ? null : Uri.tryParse(rawImage);
+        return LinkMetadata(
+          title: _clean(data['title'] as String?),
+          description: _clean(data['description'] as String?),
+          thumbnailUrl:
+              image != null && image.scheme == 'https' && image.host.isNotEmpty
+              ? image.toString()
+              : null,
+          siteName: _clean(data['provider_name'] as String?),
+          domain: original.host.toLowerCase(),
+        );
+      }
+    } catch (_) {
+      // The generic destination metadata remains available as a fallback.
+    }
+    return null;
+  }
+
   LinkMetadata parse(String source, {required Uri pageUrl, Uri? originalUrl}) {
     final document = html_parser.parse(source);
     String? content(String selector) =>
         _clean(document.querySelector(selector)?.attributes['content']);
 
-    final title =
-        content('meta[property="og:title"]') ??
-        content('meta[name="twitter:title"]') ??
-        _clean(document.querySelector('title')?.text);
-    final description =
-        content('meta[property="og:description"]') ??
-        content('meta[name="description"]') ??
-        content('meta[name="twitter:description"]');
+    Metadata parsed;
+    try {
+      parsed = MetadataParser.parse(document, url: pageUrl.toString());
+    } catch (_) {
+      // Malformed JSON-LD must not hide otherwise valid page metadata.
+      final sources = [
+        MetadataParser.openGraph(document),
+        MetadataParser.twitterCard(document),
+        MetadataParser.htmlMeta(document),
+      ];
+      parsed = Metadata();
+      for (final source in sources) {
+        parsed.title ??= source.title;
+        parsed.description ??= source.description;
+        parsed.image ??= source.image;
+        parsed.url ??= source.url;
+      }
+    }
+
+    final title = _clean(parsed.title);
+    final description = _clean(parsed.description);
     final siteName = content('meta[property="og:site_name"]');
     final rawImage =
-        content('meta[property="og:image:secure_url"]') ??
-        content('meta[property="og:image"]') ??
-        content('meta[name="twitter:image"]');
-    String? imageUrl;
+        content('meta[property="og:image:secure_url"]') ?? _clean(parsed.image);
+    String? thumbnailUrl;
     if (rawImage != null) {
       final image = pageUrl.resolve(rawImage);
       if (image.scheme == 'https' && image.host.isNotEmpty) {
-        imageUrl = image.toString();
+        thumbnailUrl = image.toString();
       }
     }
     return LinkMetadata(
       title: title,
       description: description,
-      imageUrl: imageUrl,
+      thumbnailUrl: thumbnailUrl,
       siteName: siteName,
       domain: (originalUrl ?? pageUrl).host.toLowerCase(),
     );
