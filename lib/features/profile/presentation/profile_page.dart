@@ -20,7 +20,7 @@ class ProfilePage extends StatelessWidget {
         const SizedBox(height: 16),
         const CircleAvatar(
           radius: 34,
-          child: Icon(Icons.person_outline, size: 34),
+          child: Icon(Icons.person_outline, size: 34), // commented
         ),
         const SizedBox(height: 16),
         Text(
