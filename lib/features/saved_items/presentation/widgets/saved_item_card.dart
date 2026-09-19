@@ -83,20 +83,20 @@ class SavedItemCard extends StatelessWidget {
                             padding: EdgeInsets.zero,
                             tooltip: 'Item actions',
                             onSelected: onAction,
-                            itemBuilder: (_) => const [
-                              PopupMenuItem(
+                            itemBuilder: (_) => [
+                              const PopupMenuItem(
                                 value: ItemAction.details,
                                 child: Text('View details'),
                               ),
-                              PopupMenuItem(
+                              const PopupMenuItem(
                                 value: ItemAction.open,
                                 child: Text('Open original'),
                               ),
-                              PopupMenuItem(
+                              const PopupMenuItem(
                                 value: ItemAction.copy,
                                 child: Text('Copy link'),
                               ),
-                              PopupMenuItem(
+                              const PopupMenuItem(
                                 value: ItemAction.share,
                                 child: Text('Share again'),
                               ),
@@ -106,7 +106,7 @@ class SavedItemCard extends StatelessWidget {
                                   value: ItemAction.retryPreview,
                                   child: Text('Retry preview'),
                                 ),
-                              PopupMenuItem(
+                              const PopupMenuItem(
                                 value: ItemAction.delete,
                                 child: Text('Delete'),
                               ),
