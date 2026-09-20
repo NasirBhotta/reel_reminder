@@ -206,7 +206,7 @@ class _ProfilePageState extends State<ProfilePage> {
                       ),
                       const SizedBox(height: 5),
                       Text(
-                        'Open a link in TikTok, Instagram, YouTube, or another app. Tap Share, then choose Reel Reminder.',
+                        'Open a link in TikTok, Instagram, YouTube, or another app. Tap Share, then choose KeepIt.',
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                           height: 1.35,
@@ -225,7 +225,7 @@ class _ProfilePageState extends State<ProfilePage> {
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Row(
                   children: [
@@ -278,7 +278,7 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
         const SizedBox(height: 28),
         Text(
-          'Reel Reminder · 0.1.0\nYour finds, in one place.',
+          'KeepIt · 0.1.0\nYour finds, in one place.',
           textAlign: TextAlign.center,
           style: theme.textTheme.bodySmall?.copyWith(
             color: theme.colorScheme.outline,

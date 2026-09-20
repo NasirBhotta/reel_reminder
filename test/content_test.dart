@@ -28,13 +28,37 @@ void main() {
   });
   group('URL parsing', () {
     test(
-      'extracts and normalizes without changing case-sensitive path or query',
+      'extracts, normalizes, and strips tracking parameters while preserving functional query and case-sensitive path',
       () {
         expect(
           UrlParser.parse(
             'Check this https://WWW.Instagram.com/Reel/AbC?igsh=XYZ.',
           ).toString(),
-          'https://www.instagram.com/Reel/AbC?igsh=XYZ',
+          'https://www.instagram.com/Reel/AbC',
+        );
+        expect(
+          UrlParser.parse(
+            'Watch: https://youtu.be/video123?si=trackXYZ&feature=share',
+          ).toString(),
+          'https://youtu.be/video123',
+        );
+        expect(
+          UrlParser.parse(
+            'https://www.youtube.com/watch?v=video123&si=trackXYZ&t=45s',
+          ).toString(),
+          'https://www.youtube.com/watch?v=video123&t=45s',
+        );
+        expect(
+          UrlParser.parse(
+            'https://www.tiktok.com/@chef/video/987?_r=1&tt_from=copy_link',
+          ).toString(),
+          'https://www.tiktok.com/@chef/video/987',
+        );
+        expect(
+          UrlParser.parse(
+            'https://example.com/article?utm_source=social&utm_medium=feed&page=2',
+          ).toString(),
+          'https://example.com/article?page=2',
         );
       },
     );
@@ -102,4 +126,20 @@ void main() {
     guard.forget('url');
     expect(guard.accept('url', now.add(const Duration(seconds: 9))), true);
   });
+  test(
+    'different tracking URLs for same reel normalize identically and suppress duplicates',
+    () {
+      final guard = DuplicateGuard();
+      final now = DateTime(2026);
+      final url1 = UrlParser.parse(
+        'https://www.instagram.com/reel/C12345/?igsh=userA_track',
+      ).toString();
+      final url2 = UrlParser.parse(
+        'https://www.instagram.com/reel/C12345/?igsh=userB_track',
+      ).toString();
+      expect(url1, url2);
+      expect(guard.accept(url1, now), true);
+      expect(guard.accept(url2, now.add(const Duration(seconds: 2))), false);
+    },
+  );
 }

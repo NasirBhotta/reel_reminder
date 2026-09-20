@@ -63,6 +63,7 @@ class SavedItemDetailsPage extends StatelessWidget {
                   image.toString(),
                   height: 220,
                   width: double.infinity,
+                  cacheWidth: 800,
                   fit: BoxFit.cover,
                   errorBuilder: (_, _, _) => const SizedBox.shrink(),
                 ),

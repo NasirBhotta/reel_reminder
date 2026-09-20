@@ -75,7 +75,7 @@ Future<void> main() async {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const Text(
-                    'Could not start Reel Reminder. Check Firebase configuration and restart the app.',
+                    'Could not start KeepIt. Check Firebase configuration and restart the app.',
                   ),
                   TextButton(onPressed: main, child: const Text('Retry')),
                 ],
@@ -141,7 +141,7 @@ class _MainAppState extends State<MainApp> {
     child: BlocProvider(
       create: (_) => AuthBloc(widget.auth, widget.telemetry),
       child: MaterialApp(
-        title: 'Reel Reminder',
+        title: 'KeepIt',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light(),
         darkTheme: AppTheme.dark(),

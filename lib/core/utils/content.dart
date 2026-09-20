@@ -82,7 +82,59 @@ class UrlParser {
             uri.port > 65535) {
           continue;
         }
-        return uri.replace(host: host, path: uri.path.isEmpty ? '/' : uri.path);
+        Map<String, List<String>>? cleanQueryParams;
+        var shouldClearQuery = false;
+        if (uri.hasQuery) {
+          final filtered = <String, List<String>>{};
+          uri.queryParametersAll.forEach((key, values) {
+            final lower = key.toLowerCase();
+            final isTracking =
+                lower.startsWith('utm_') ||
+                lower.startsWith('ref_') ||
+                lower == 'igsh' ||
+                lower == 'si' ||
+                lower == 'fbclid' ||
+                lower == 'gclid' ||
+                lower == 'tt_from' ||
+                lower == '_r' ||
+                lower == 'is_from_webapp' ||
+                lower == 'sender_device' ||
+                (lower == 'feature' &&
+                    values.any(
+                      (v) =>
+                          v.toLowerCase().startsWith('share') ||
+                          v.toLowerCase().startsWith('youtu'),
+                    )) ||
+                ((host == 'x.com' || host == 'twitter.com') &&
+                    (lower == 's' || lower == 't'));
+            if (!isTracking) {
+              filtered[key] = values;
+            }
+          });
+          if (filtered.isEmpty) {
+            shouldClearQuery = true;
+          } else {
+            cleanQueryParams = filtered;
+          }
+        }
+        final cleanPath = uri.path.isEmpty ? '/' : uri.path;
+        if (shouldClearQuery) {
+          return Uri(
+            scheme: uri.scheme,
+            userInfo: uri.userInfo.isEmpty ? null : uri.userInfo,
+            host: host,
+            port: uri.hasPort ? uri.port : null,
+            path: cleanPath,
+            fragment: uri.hasFragment ? uri.fragment : null,
+          );
+        } else if (cleanQueryParams != null) {
+          return uri.replace(
+            host: host,
+            path: cleanPath,
+            queryParameters: cleanQueryParams,
+          );
+        }
+        return uri.replace(host: host, path: cleanPath);
       } on FormatException {
         // A malformed candidate must not hide a later valid link.
       }

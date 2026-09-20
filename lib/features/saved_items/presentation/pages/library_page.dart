@@ -42,6 +42,10 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
   StreamSubscription<ReminderResponse>? _reminderActions;
   final _search = TextEditingController();
   final _searchFocusNode = FocusNode();
+  final _scrollController = ScrollController();
+  bool _searchVisible = false;
+  bool _loadingMore = false;
+  bool _isSyncing = false;
 
   @override
   void initState() {
@@ -56,11 +60,38 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
     _searchFocusNode.addListener(() {
       if (mounted) setState(() {});
     });
+    _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final pending = context.read<ReminderService>().takePendingResponse();
       if (pending != null) unawaited(_handleReminderResponse(pending));
     });
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 300) {
+      final bloc = context.read<SavedItemsBloc>();
+      if (bloc.state.items.length >= bloc.loadLimit && !_loadingMore) {
+        _loadingMore = true;
+        bloc.add(ItemsStarted(loadMore: true));
+        Future.delayed(const Duration(seconds: 2), () {
+          if (mounted) setState(() => _loadingMore = false);
+        });
+      }
+    }
+  }
+
+  Future<void> _manualSync() async {
+    if (_isSyncing) return;
+    setState(() => _isSyncing = true);
+    context.read<SavedItemsBloc>().add(ItemsStarted());
+    await _drain();
+    if (mounted) {
+      setState(() => _isSyncing = false);
+      _message('Library updated');
+    }
   }
 
   void _scheduleDateRefresh() {
@@ -78,6 +109,8 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
   void dispose() {
     _search.dispose();
     _searchFocusNode.dispose();
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
     _clock?.cancel();
     _reminderActions?.cancel();
     widget.shares.dispose();
@@ -453,140 +486,208 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
                                     color: theme.colorScheme.onSurfaceVariant,
                                   ),
                                 ),
+                                if (!_searchVisible) ...[
+                                  const SizedBox(height: 4),
+                                  InkWell(
+                                    borderRadius: BorderRadius.circular(4),
+                                    onTap: () {
+                                      setState(() => _searchVisible = true);
+                                      _searchFocusNode.requestFocus();
+                                    },
+                                    child: Text(
+                                      'Pull down to search ∨',
+                                      style: TextStyle(
+                                        color: dark
+                                            ? AppTheme.mint
+                                            : AppTheme.brand,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 12.5,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           ),
-                          Container(
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: dark
-                                    ? const Color(0xFF30483F)
-                                    : const Color(0xFFD9E9E1),
-                              ),
-                            ),
-                            child: IconButton(
-                              tooltip: 'Search your finds',
-                              onPressed: () {
-                                if (!_searchFocusNode.hasFocus) {
-                                  _searchFocusNode.requestFocus();
-                                } else {
-                                  context.read<SavedItemsBloc>().add(
-                                    ItemsStarted(),
-                                  );
-                                  unawaited(_drain());
-                                }
-                              },
-                              icon: const Icon(Icons.search_rounded),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: dark
-                                    ? const Color(0xFF14241F)
-                                    : Colors.white,
-                                borderRadius: BorderRadius.circular(
-                                  AppRadius.md,
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: dark
+                                        ? const Color(0xFF30483F)
+                                        : const Color(0xFFD9E9E1),
+                                  ),
                                 ),
-                                border: Border.all(
-                                  color:
-                                      (_searchFocusNode.hasFocus ||
-                                          _search.text.isNotEmpty)
-                                      ? (dark ? AppTheme.mint : AppTheme.brand)
-                                      : (dark
-                                            ? const Color(0xFF30483F)
-                                            : const Color(0xFFD9E9E1)),
-                                  width:
-                                      (_searchFocusNode.hasFocus ||
-                                          _search.text.isNotEmpty)
-                                      ? 1.8
-                                      : 1.0,
-                                ),
-                              ),
-                              child: TextField(
-                                controller: _search,
-                                focusNode: _searchFocusNode,
-                                textInputAction: TextInputAction.search,
-                                decoration: InputDecoration(
-                                  filled: false,
-                                  border: InputBorder.none,
-                                  enabledBorder: InputBorder.none,
-                                  focusedBorder: InputBorder.none,
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 14,
-                                    vertical: 12,
-                                  ),
-                                  prefixIcon: Icon(
-                                    Icons.search_rounded,
-                                    color:
-                                        (_searchFocusNode.hasFocus ||
-                                            _search.text.isNotEmpty)
-                                        ? (dark
-                                              ? AppTheme.mint
-                                              : AppTheme.brand)
-                                        : theme.colorScheme.outline,
-                                  ),
-                                  hintText: 'Search your finds...',
-                                  hintStyle: TextStyle(
-                                    color: theme.colorScheme.outline,
-                                  ),
-                                  suffixIcon: _search.text.isNotEmpty
-                                      ? IconButton(
-                                          tooltip: 'Clear search',
-                                          onPressed: () {
-                                            _search.clear();
-                                            setState(() {});
-                                            context.read<SavedItemsBloc>().add(
-                                              SearchChanged(''),
-                                            );
-                                          },
-                                          icon: const Icon(Icons.close_rounded),
+                                child: IconButton(
+                                  tooltip: 'Sync and refresh finds',
+                                  onPressed: _isSyncing ? null : _manualSync,
+                                  icon: _isSyncing
+                                      ? SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            valueColor:
+                                                AlwaysStoppedAnimation<Color>(
+                                                  dark
+                                                      ? AppTheme.mint
+                                                      : AppTheme.brand,
+                                                ),
+                                          ),
                                         )
-                                      : null,
+                                      : const Icon(
+                                          Icons.sync_rounded,
+                                          size: 21,
+                                        ),
                                 ),
-                                onChanged: (query) {
-                                  setState(() {});
-                                  context.read<SavedItemsBloc>().add(
-                                    SearchChanged(query),
-                                  );
-                                },
                               ),
-                            ),
+                              const SizedBox(width: 8),
+                              Container(
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: dark
+                                        ? const Color(0xFF30483F)
+                                        : const Color(0xFFD9E9E1),
+                                  ),
+                                ),
+                                child: IconButton(
+                                  tooltip: _searchVisible
+                                      ? 'Close search'
+                                      : 'Search finds',
+                                  onPressed: () {
+                                    setState(
+                                      () => _searchVisible = !_searchVisible,
+                                    );
+                                    if (_searchVisible) {
+                                      _searchFocusNode.requestFocus();
+                                    } else {
+                                      _search.clear();
+                                      _searchFocusNode.unfocus();
+                                      context.read<SavedItemsBloc>().add(
+                                        SearchChanged(''),
+                                      );
+                                    }
+                                  },
+                                  icon: Icon(
+                                    _searchVisible
+                                        ? Icons.close_rounded
+                                        : Icons.search_rounded,
+                                    size: 21,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                          if (_searchFocusNode.hasFocus ||
-                              _search.text.isNotEmpty) ...[
-                            const SizedBox(width: 8),
-                            TextButton(
-                              onPressed: () {
-                                _search.clear();
-                                _searchFocusNode.unfocus();
-                                context.read<SavedItemsBloc>().add(
-                                  SearchChanged(''),
-                                );
-                                setState(() {});
-                              },
-                              child: Text(
-                                'Cancel',
-                                style: TextStyle(
-                                  color: dark ? AppTheme.mint : AppTheme.brand,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ],
                         ],
                       ),
                     ),
-                    const SizedBox(height: 12),
+                    AnimatedSize(
+                      duration: const Duration(milliseconds: 240),
+                      curve: Curves.easeInOutCubic,
+                      child: !_searchVisible
+                          ? const SizedBox.shrink()
+                          : Padding(
+                              padding: const EdgeInsets.fromLTRB(20, 8, 20, 10),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: dark
+                                            ? const Color(0xFF14241F)
+                                            : Colors.white,
+                                        borderRadius: BorderRadius.circular(
+                                          AppRadius.md,
+                                        ),
+                                        border: Border.all(
+                                          color: dark
+                                              ? AppTheme.mint
+                                              : AppTheme.brand,
+                                          width: 1.8,
+                                        ),
+                                      ),
+                                      child: TextField(
+                                        controller: _search,
+                                        focusNode: _searchFocusNode,
+                                        textInputAction: TextInputAction.search,
+                                        decoration: InputDecoration(
+                                          filled: false,
+                                          border: InputBorder.none,
+                                          enabledBorder: InputBorder.none,
+                                          focusedBorder: InputBorder.none,
+                                          contentPadding:
+                                              const EdgeInsets.symmetric(
+                                                horizontal: 14,
+                                                vertical: 12,
+                                              ),
+                                          prefixIcon: Icon(
+                                            Icons.search_rounded,
+                                            color: dark
+                                                ? AppTheme.mint
+                                                : AppTheme.brand,
+                                          ),
+                                          hintText: 'Search your finds...',
+                                          hintStyle: TextStyle(
+                                            color: theme.colorScheme.outline,
+                                          ),
+                                          suffixIcon: _search.text.isNotEmpty
+                                              ? IconButton(
+                                                  tooltip: 'Clear search',
+                                                  onPressed: () {
+                                                    _search.clear();
+                                                    setState(() {});
+                                                    context
+                                                        .read<SavedItemsBloc>()
+                                                        .add(SearchChanged(''));
+                                                  },
+                                                  icon: const Icon(
+                                                    Icons.close_rounded,
+                                                  ),
+                                                )
+                                              : null,
+                                        ),
+                                        onChanged: (query) {
+                                          setState(() {});
+                                          if (_scrollController.hasClients &&
+                                              _scrollController.offset > 0) {
+                                            _scrollController.jumpTo(0);
+                                          }
+                                          context.read<SavedItemsBloc>().add(
+                                            SearchChanged(query),
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  TextButton(
+                                    onPressed: () {
+                                      _search.clear();
+                                      _searchFocusNode.unfocus();
+                                      setState(() => _searchVisible = false);
+                                      context.read<SavedItemsBloc>().add(
+                                        SearchChanged(''),
+                                      );
+                                    },
+                                    child: Text(
+                                      'Cancel',
+                                      style: TextStyle(
+                                        color: dark
+                                            ? AppTheme.mint
+                                            : AppTheme.brand,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                    ),
+                    const SizedBox(height: 10),
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -619,20 +720,23 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
                             }).toList(),
                       ),
                     ),
-                    if (state.items.length >=
-                        context.read<SavedItemsBloc>().loadLimit)
-                      TextButton(
-                        onPressed: () => context.read<SavedItemsBloc>().add(
-                          ItemsStarted(loadMore: true),
-                        ),
-                        child: const Text('Load older finds'),
-                      ),
                     Expanded(
-                      child: NotificationListener<OverscrollNotification>(
+                      child: NotificationListener<ScrollNotification>(
                         onNotification: (notification) {
-                          if (notification.overscroll < -8 &&
-                              !_searchFocusNode.hasFocus) {
-                            _searchFocusNode.requestFocus();
+                          if (notification is OverscrollNotification) {
+                            if (notification.overscroll < -6 &&
+                                !_searchVisible) {
+                              HapticFeedback.lightImpact();
+                              setState(() => _searchVisible = true);
+                              _searchFocusNode.requestFocus();
+                            }
+                          } else if (notification is ScrollUpdateNotification) {
+                            if (notification.metrics.pixels < -10 &&
+                                !_searchVisible) {
+                              HapticFeedback.lightImpact();
+                              setState(() => _searchVisible = true);
+                              _searchFocusNode.requestFocus();
+                            }
                           }
                           return false;
                         },
@@ -649,7 +753,7 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
   Widget _timeline(SavedItemsState state) {
     if (state.loading) return const Center(child: CircularProgressIndicator());
     final now = DateTime.now();
-    final isSearching = _search.text.trim().isNotEmpty;
+    final isSearching = _searchVisible && _search.text.trim().isNotEmpty;
     final items = state.visible(now, search: isSearching);
 
     if (items.isEmpty) {
@@ -659,26 +763,50 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.bookmark_add_outlined, size: 64),
+              Icon(
+                isSearching
+                    ? Icons.search_off_rounded
+                    : Icons.bookmark_add_outlined,
+                size: 64,
+                color: Theme.of(context).colorScheme.outline,
+              ),
               const SizedBox(height: 20),
               Text(
                 state.items.isEmpty
                     ? 'Your next good find belongs here.'
                     : isSearching
-                    ? 'No search results'
+                    ? 'No results for "${_search.text.trim()}"'
                     : 'No finds in this date range',
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.titleLarge,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               Text(
                 state.items.isEmpty
-                    ? 'Open TikTok, Instagram, YouTube, or another app → tap Share → choose Reel Reminder.'
+                    ? 'Open TikTok, Instagram, YouTube, or another app → tap Share → choose KeepIt.'
                     : isSearching
-                    ? 'Try a shorter title, source, or link.'
-                    : 'Try another date filter.',
+                    ? 'Try checking for typos, or search by source or domain.'
+                    : 'Try another date filter above.',
                 textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
+              if (isSearching) ...[
+                const SizedBox(height: 20),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    _search.clear();
+                    _searchFocusNode.unfocus();
+                    setState(() => _searchVisible = false);
+                    context.read<SavedItemsBloc>().add(SearchChanged(''));
+                  },
+                  icon: const Icon(Icons.clear_rounded),
+                  label: const Text('Clear search'),
+                ),
+              ],
               if (state.message != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 16),
@@ -696,59 +824,75 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
       groupCounts[group] = (groupCounts[group] ?? 0) + 1;
     }
 
-    return RefreshIndicator(
-      onRefresh: () async {
-        context.read<SavedItemsBloc>().add(ItemsStarted());
-        await _drain();
-      },
-      child: ListView.builder(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-        itemCount: items.length,
-        itemBuilder: (context, index) {
-          final item = items[index];
-          final group = DateHistory.group(item.createdAt, now);
-          final header =
-              index == 0 ||
-              DateHistory.group(items[index - 1].createdAt, now) != group;
-          final count = groupCounts[group] ?? 1;
+    final hasMore =
+        state.items.length >= context.read<SavedItemsBloc>().loadLimit;
 
-          return Column(
-            key: ValueKey(item.id),
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (header)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8, bottom: 12),
-                  child: Row(
-                    children: [
-                      Text(
-                        group,
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 16,
-                            ),
-                      ),
-                      const Spacer(),
-                      Text(
-                        '$count items',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.outline,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
+    return ListView.builder(
+      controller: _scrollController,
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+      itemCount: items.length + (hasMore ? 1 : 0),
+      itemBuilder: (context, index) {
+        if (index == items.length) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 24),
+            child: Center(
+              child: SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    Theme.of(context).brightness == Brightness.dark
+                        ? AppTheme.mint
+                        : AppTheme.brand,
                   ),
                 ),
-              SavedItemCard(
-                item: item,
-                onAction: (action) => unawaited(_action(item, action)),
               ),
-            ],
+            ),
           );
-        },
-      ),
+        }
+        final item = items[index];
+        final group = DateHistory.group(item.createdAt, now);
+        final header =
+            index == 0 ||
+            DateHistory.group(items[index - 1].createdAt, now) != group;
+        final count = groupCounts[group] ?? 1;
+
+        return Column(
+          key: ValueKey(item.id),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (header)
+              Padding(
+                padding: const EdgeInsets.only(top: 8, bottom: 12),
+                child: Row(
+                  children: [
+                    Text(
+                      group,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      '$count items',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.outline,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            SavedItemCard(
+              item: item,
+              onAction: (action) => unawaited(_action(item, action)),
+            ),
+          ],
+        );
+      },
     );
   }
 }

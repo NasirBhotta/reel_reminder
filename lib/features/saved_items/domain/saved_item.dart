@@ -116,6 +116,8 @@ class SavedItem {
           url,
           siteName,
           domain,
+          tag,
+          notes,
           platform.label,
           if (platform == ContentPlatform.x) 'Twitter',
         ].whereType<String>().any((value) => normalize(value).contains(needle));

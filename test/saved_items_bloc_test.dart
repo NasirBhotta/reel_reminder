@@ -134,6 +134,8 @@ void main() {
         userId: 'u',
         url: 'https://youtu.be/a',
         platform: ContentPlatform.youtube,
+        tag: 'Cooking Recipe',
+        notes: 'Secret ingredients for cake',
         createdAt: now,
         updatedAt: now,
       ),
@@ -142,6 +144,12 @@ void main() {
     expect(bloc.state.loading, false);
     bloc.add(SearchChanged('YOUTUBE'));
     bloc.add(FilterChanged(DateFilter.today));
+    await settle();
+    expect(bloc.state.visible(now, search: true), hasLength(1));
+    bloc.add(SearchChanged('recipe'));
+    await settle();
+    expect(bloc.state.visible(now, search: true), hasLength(1));
+    bloc.add(SearchChanged('secret ingredients'));
     await settle();
     expect(bloc.state.visible(now, search: true), hasLength(1));
     bloc.add(SearchChanged('missing'));

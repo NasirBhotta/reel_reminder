@@ -21,7 +21,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
     (
       icon: Icons.ios_share_rounded,
       title: 'Use the Share button',
-      body: 'Tap Share, then choose Reel Reminder from the share sheet.',
+      body: 'Tap Share, then choose KeepIt from the share sheet.',
     ),
     (
       icon: Icons.manage_search_rounded,

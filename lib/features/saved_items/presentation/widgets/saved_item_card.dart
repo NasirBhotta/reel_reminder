@@ -59,6 +59,8 @@ class SavedItemCard extends StatelessWidget {
                       ? Image.network(
                           image.toString(),
                           fit: BoxFit.cover,
+                          cacheWidth: 260,
+                          cacheHeight: 260,
                           filterQuality: FilterQuality.medium,
                           frameBuilder: (context, child, frame, _) =>
                               frame != null

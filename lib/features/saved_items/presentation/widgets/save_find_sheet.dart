@@ -230,6 +230,8 @@ class _SaveFindSheetState extends State<SaveFindSheet> {
                           ? Image.network(
                               _previewImage!,
                               fit: BoxFit.cover,
+                              cacheWidth: 160,
+                              cacheHeight: 160,
                               errorBuilder: (_, _, _) => ColoredBox(
                                 color: dark
                                     ? const Color(0xFF1E382D)
