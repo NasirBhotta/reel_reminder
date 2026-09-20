@@ -278,7 +278,7 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
         const SizedBox(height: 28),
         Text(
-          'KeepIt · 0.1.0\nYour finds, in one place.',
+          'KeepIt · 0.1.1\nYour finds, in one place.',
           textAlign: TextAlign.center,
           style: theme.textTheme.bodySmall?.copyWith(
             color: theme.colorScheme.outline,
