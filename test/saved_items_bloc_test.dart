@@ -8,6 +8,12 @@ import 'package:reel_reminder/features/saved_items/domain/saved_item.dart';
 import 'package:reel_reminder/features/saved_items/presentation/bloc/saved_items_bloc.dart';
 
 class FakeRepository implements SavedItemsRepository {
+  @override
+  Future<String> create(SavedItemDraft draft) async => 'created';
+
+  @override
+  Future<void> update(SavedItem item, SavedItemDraft draft) async {}
+
   final controller = StreamController<List<SavedItem>>.broadcast();
   final saved = <String>[];
   bool fail = false;

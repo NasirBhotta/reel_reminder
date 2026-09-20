@@ -88,14 +88,16 @@ class SavedItemCard extends StatelessWidget {
                                 value: ItemAction.details,
                                 child: Text('View details'),
                               ),
-                              const PopupMenuItem(
-                                value: ItemAction.open,
-                                child: Text('Open original'),
-                              ),
-                              const PopupMenuItem(
-                                value: ItemAction.copy,
-                                child: Text('Copy link'),
-                              ),
+                              if (item.hasLink) ...[
+                                const PopupMenuItem(
+                                  value: ItemAction.open,
+                                  child: Text('Open original'),
+                                ),
+                                const PopupMenuItem(
+                                  value: ItemAction.copy,
+                                  child: Text('Copy link'),
+                                ),
+                              ],
                               const PopupMenuItem(
                                 value: ItemAction.share,
                                 child: Text('Share again'),
@@ -173,6 +175,30 @@ class SavedItemCard extends StatelessWidget {
                         ),
                       ],
                     ),
+                    if (item.hasReminder && item.reminderAt != null) ...[
+                      const SizedBox(height: 5),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.notifications_none_rounded,
+                            size: 15,
+                            color: theme.colorScheme.primary,
+                          ),
+                          const SizedBox(width: 5),
+                          Expanded(
+                            child: Text(
+                              '${MaterialLocalizations.of(context).formatShortDate(item.reminderAt!.toLocal())} · ${TimeOfDay.fromDateTime(item.reminderAt!.toLocal()).format(context)}${item.repeatType.name == 'never' ? '' : '  ↻ ${item.repeatType.name}'}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.primary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),

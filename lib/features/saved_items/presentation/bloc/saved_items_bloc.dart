@@ -6,6 +6,7 @@ import '../../../../core/services/telemetry.dart';
 import '../../../../core/utils/content.dart';
 import '../../data/saved_items_repository.dart';
 import '../../domain/saved_item.dart';
+import '../../../reminders/data/reminder_service.dart';
 
 sealed class SavedItemsEvent {}
 
@@ -54,6 +55,19 @@ class PreviewRetryRequested extends SavedItemsEvent {
   final SavedItem item;
 }
 
+class CreateRequested extends SavedItemsEvent {
+  CreateRequested(this.draft, this.completer);
+  final SavedItemDraft draft;
+  final Completer<String> completer;
+}
+
+class UpdateRequested extends SavedItemsEvent {
+  UpdateRequested(this.item, this.draft, this.completer);
+  final SavedItem item;
+  final SavedItemDraft draft;
+  final Completer<void> completer;
+}
+
 class SavedItemsState extends Equatable {
   const SavedItemsState({
     this.items = const [],
@@ -95,7 +109,7 @@ class SavedItemsState extends Equatable {
 }
 
 class SavedItemsBloc extends Bloc<SavedItemsEvent, SavedItemsState> {
-  SavedItemsBloc(this.repository, this.shares, this.telemetry)
+  SavedItemsBloc(this.repository, this.shares, this.telemetry, [this.reminders])
     : super(const SavedItemsState()) {
     on<ItemsStarted>((event, emit) async {
       if (event.loadMore) loadLimit += 100;
@@ -201,6 +215,7 @@ class SavedItemsBloc extends Bloc<SavedItemsEvent, SavedItemsState> {
       if (!_changingItems.add(event.item.id)) return;
       try {
         await repository.delete(event.item.id);
+        await reminders?.cancel(event.item.id);
         await shares.acknowledge(event.item.id);
         unawaited(telemetry.event('item_deleted'));
       } catch (e, s) {
@@ -228,6 +243,30 @@ class SavedItemsBloc extends Bloc<SavedItemsEvent, SavedItemsState> {
         _changingItems.remove('preview:${event.item.id}');
       }
     });
+    on<CreateRequested>((event, emit) async {
+      try {
+        final id = await repository.create(event.draft);
+        await _syncReminder(id, event.draft);
+        event.completer.complete(id);
+        emit(state.copy(message: 'Saved to your finds.'));
+      } catch (error, stack) {
+        unawaited(telemetry.failure('manual_save', error, stack));
+        event.completer.completeError(error, stack);
+        emit(state.copy(message: 'Could not save this find. Try again.'));
+      }
+    });
+    on<UpdateRequested>((event, emit) async {
+      try {
+        await repository.update(event.item, event.draft);
+        await _syncReminder(event.item.id, event.draft);
+        event.completer.complete();
+        emit(state.copy(message: 'Changes saved.'));
+      } catch (error, stack) {
+        unawaited(telemetry.failure('item_update', error, stack));
+        event.completer.completeError(error, stack);
+        emit(state.copy(message: 'Could not save changes. Try again.'));
+      }
+    });
     if (repository is FirestoreSavedItemsRepository) {
       _failures = (repository as FirestoreSavedItemsRepository).failures.listen(
         (message) => add(ItemsFailed(message)),
@@ -238,6 +277,7 @@ class SavedItemsBloc extends Bloc<SavedItemsEvent, SavedItemsState> {
   int loadLimit = 100;
   final ShareService shares;
   final Telemetry telemetry;
+  final ReminderService? reminders;
   final _duplicates = DuplicateGuard();
   final _inFlight = <String>{};
   final _acceptedShares = <String>{};
@@ -246,6 +286,21 @@ class SavedItemsBloc extends Bloc<SavedItemsEvent, SavedItemsState> {
   final _changingItems = <String>{};
   StreamSubscription<List<SavedItem>>? _subscription;
   StreamSubscription<String>? _failures;
+  Future<void> _syncReminder(String id, SavedItemDraft draft) async {
+    final service = reminders;
+    if (service == null) return;
+    if (!draft.hasReminder) return service.cancel(id);
+    await service.schedule(
+      itemId: id,
+      title: draft.title?.trim().isNotEmpty == true
+          ? draft.title!.trim()
+          : 'Saved find reminder',
+      at: draft.reminderAt!,
+      repeat: draft.repeatType,
+      customIntervalDays: draft.customIntervalDays,
+    );
+  }
+
   @override
   Future<void> close() async {
     await _subscription?.cancel();

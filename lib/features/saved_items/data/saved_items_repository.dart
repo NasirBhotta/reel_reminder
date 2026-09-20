@@ -9,6 +9,8 @@ abstract class SavedItemsRepository {
   Stream<List<SavedItem>> watch({int limit = 100});
   Future<bool> save(String id, Uri url, String text);
   Future<bool> retryMetadata(SavedItem item);
+  Future<String> create(SavedItemDraft draft);
+  Future<void> update(SavedItem item, SavedItemDraft draft);
   Future<void> favorite(SavedItem item);
   Future<void> delete(String id);
 }
@@ -180,6 +182,53 @@ class FirestoreSavedItemsRepository implements SavedItemsRepository {
     return false;
   }
 
+  @override
+  Future<String> create(SavedItemDraft draft) async {
+    final ref = collection.doc();
+    final uri = draft.url;
+    await ref.set({
+      'userId': uid,
+      'url': uri?.toString() ?? '',
+      'sharedText': draft.content,
+      'title': draft.title,
+      'thumbnailUrl': null,
+      'platform': uri == null
+          ? ContentPlatform.website.name
+          : PlatformDetector.detect(uri).name,
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+      'clientCreatedAt': Timestamp.now(),
+      'isFavorite': false,
+      'tag': draft.tag,
+      'notes': draft.notes,
+      'hasReminder': draft.hasReminder,
+      'reminderAt': draft.reminderAt == null
+          ? null
+          : Timestamp.fromDate(draft.reminderAt!),
+      'repeatType': draft.repeatType.name,
+      'customIntervalDays': draft.customIntervalDays,
+    });
+    if (uri != null) {
+      _startMetadataIfNeeded(ref.id, uri, {'title': draft.title});
+    }
+    return ref.id;
+  }
+
+  @override
+  Future<void> update(SavedItem item, SavedItemDraft draft) =>
+      collection.doc(item.id).update({
+        'title': draft.title,
+        'tag': draft.tag,
+        'notes': draft.notes,
+        'hasReminder': draft.hasReminder,
+        'reminderAt': draft.reminderAt == null
+            ? null
+            : Timestamp.fromDate(draft.reminderAt!),
+        'repeatType': draft.repeatType.name,
+        'customIntervalDays': draft.customIntervalDays,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
   final _metadataInFlight = <String>{};
   final _metadataAttemptedThisSession = <String>{};
   final _legacyMetadataQueue = <SavedItem>[];
@@ -221,7 +270,7 @@ class FirestoreSavedItemsRepository implements SavedItemsRepository {
         final item = _legacyMetadataQueue.removeAt(0);
         final uri = Uri.tryParse(item.url);
         if (uri != null && _metadataInFlight.add(item.id)) {
-          await _fetchAndStoreMetadata(item.id, uri);
+          await _fetchAndStoreMetadata(item.id, uri, existingTitle: item.title);
         }
       }
     } finally {
@@ -235,17 +284,23 @@ class FirestoreSavedItemsRepository implements SavedItemsRepository {
       return;
     }
     _metadataAttemptedThisSession.add(id);
-    unawaited(_fetchAndStoreMetadata(id, url));
+    unawaited(
+      _fetchAndStoreMetadata(id, url, existingTitle: data?['title'] as String?),
+    );
   }
 
-  Future<bool> _fetchAndStoreMetadata(String id, Uri url) async {
+  Future<bool> _fetchAndStoreMetadata(
+    String id,
+    Uri url, {
+    String? existingTitle,
+  }) async {
     var resolved = false;
     try {
       final metadata = await metadataService.fetch(url);
       if (_disposed) return false;
       resolved = metadata?.hasPreview == true;
       await collection.doc(id).update({
-        'title': metadata?.title,
+        if (existingTitle == null) 'title': metadata?.title,
         'description': metadata?.description,
         'thumbnailUrl': metadata?.thumbnailUrl,
         'siteName': metadata?.siteName,
@@ -277,7 +332,7 @@ class FirestoreSavedItemsRepository implements SavedItemsRepository {
     final uri = Uri.tryParse(item.url);
     if (uri == null || !_metadataInFlight.add(item.id)) return false;
     _metadataAttemptedThisSession.add(item.id);
-    return _fetchAndStoreMetadata(item.id, uri);
+    return _fetchAndStoreMetadata(item.id, uri, existingTitle: item.title);
   }
 
   @override

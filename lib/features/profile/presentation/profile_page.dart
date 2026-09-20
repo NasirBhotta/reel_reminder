@@ -31,9 +31,25 @@ class _ProfilePageState extends State<ProfilePage> {
       padding: const EdgeInsets.all(20),
       children: [
         const SizedBox(height: 16),
-        const CircleAvatar(
-          radius: 34,
-          child: Icon(Icons.person_outline, size: 34),
+        Center(
+          child: Container(
+            width: 84,
+            height: 84,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                colors: [
+                  Theme.of(context).colorScheme.primary,
+                  Theme.of(context).colorScheme.tertiary,
+                ],
+              ),
+            ),
+            child: const Icon(
+              Icons.person_outline,
+              color: Colors.white,
+              size: 38,
+            ),
+          ),
         ),
         const SizedBox(height: 16),
         Text(
@@ -124,7 +140,7 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
         const SizedBox(height: 24),
         const Text(
-          'Reel Reminder · 0.0.3\nYour finds, in one place.',
+          'Reel Reminder · 0.1.0\nYour finds, in one place.',
           textAlign: TextAlign.center,
         ),
       ],

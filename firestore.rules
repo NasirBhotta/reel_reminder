@@ -14,10 +14,12 @@ service cloud.firestore {
               'platform', 'createdAt', 'updatedAt', 'clientCreatedAt', 'isFavorite'])
             && data.keys().hasOnly(['userId', 'url', 'sharedText', 'title', 'thumbnailUrl',
               'description', 'siteName', 'domain', 'metadataStatus',
-              'platform', 'createdAt', 'updatedAt', 'clientCreatedAt', 'isFavorite'])
+              'platform', 'createdAt', 'updatedAt', 'clientCreatedAt', 'isFavorite',
+              'tag', 'notes', 'hasReminder', 'reminderAt', 'repeatType',
+              'customIntervalDays'])
             && data.userId == uid
             && data.url is string && data.url.size() <= 8192
-            && data.url.matches('https?://[^\\s]+')
+            && (data.url == '' || data.url.matches('https?://[^\\s]+'))
             && (data.sharedText == null || (data.sharedText is string && data.sharedText.size() <= 20000))
             && (data.title == null || (data.title is string && data.title.size() <= 500))
             && (!data.keys().hasAny(['description']) || data.description == null
@@ -31,6 +33,19 @@ service cloud.firestore {
               || data.metadataStatus in ['pending', 'complete', 'unavailable'])
             && data.platform in ['tiktok', 'instagram', 'facebook', 'youtube', 'x', 'reddit', 'website']
             && data.isFavorite is bool
+            && (!data.keys().hasAny(['tag']) || data.tag == null
+              || (data.tag is string && data.tag.size() <= 100))
+            && (!data.keys().hasAny(['notes']) || data.notes == null
+              || (data.notes is string && data.notes.size() <= 5000))
+            && (!data.keys().hasAny(['hasReminder']) || data.hasReminder is bool)
+            && (!data.keys().hasAny(['reminderAt']) || data.reminderAt == null
+              || data.reminderAt is timestamp)
+            && (!data.keys().hasAny(['repeatType'])
+              || data.repeatType in ['never', 'daily', 'weekly', 'monthly', 'custom'])
+            && (!data.keys().hasAny(['customIntervalDays'])
+              || data.customIntervalDays == null
+              || (data.customIntervalDays is int && data.customIntervalDays >= 1
+                && data.customIntervalDays <= 365))
             && data.createdAt is timestamp && data.updatedAt is timestamp
             && data.clientCreatedAt is timestamp;
         }
@@ -43,7 +58,8 @@ service cloud.firestore {
           && request.resource.data.userId == resource.data.userId
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'isFavorite', 'title', 'description', 'thumbnailUrl', 'siteName',
-            'domain', 'metadataStatus', 'updatedAt'])
+            'domain', 'metadataStatus', 'tag', 'notes', 'hasReminder',
+            'reminderAt', 'repeatType', 'customIntervalDays', 'updatedAt'])
           && request.resource.data.updatedAt == request.time;
       }
     }

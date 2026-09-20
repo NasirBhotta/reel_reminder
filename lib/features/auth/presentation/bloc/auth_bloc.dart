@@ -53,11 +53,19 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       if (state.loading) return;
       emit(AuthState(user: state.user, ready: true, loading: true));
       try {
+        User? user;
         if (event.register) {
-          await repository.register(event.email, event.password);
+          user = await repository
+              .register(event.email, event.password)
+              .timeout(const Duration(seconds: 20));
         } else {
-          await repository.login(event.email, event.password);
+          user = await repository
+              .login(event.email, event.password)
+              .timeout(const Duration(seconds: 20));
         }
+        // Do not make navigation depend on a second auth-state stream event.
+        // Firebase still emits that event and keeps later session changes synced.
+        emit(AuthState(user: user ?? repository.auth.currentUser, ready: true));
         unawaited(
           telemetry.event(
             event.register ? 'account_created' : 'login_completed',
@@ -72,12 +80,24 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
               'weak-password' =>
                 'Choose a stronger password (at least 6 characters).',
               'invalid-email' => 'Enter a valid email address.',
+              'invalid-credential' ||
+              'user-not-found' ||
+              'wrong-password' => 'Email or password is incorrect.',
+              'user-disabled' => 'This account has been disabled.',
               'network-request-failed' =>
                 'Check your connection and try again.',
               'too-many-requests' =>
                 'Too many attempts. Please try again later.',
               _ => 'Could not sign in. Check your details and try again.',
             },
+          ),
+        );
+      } on TimeoutException catch (e, s) {
+        unawaited(telemetry.failure('authentication_timeout', e, s));
+        emit(
+          const AuthState(
+            ready: true,
+            error: 'Sign in timed out. Check your connection and try again.',
           ),
         );
       } catch (e, s) {

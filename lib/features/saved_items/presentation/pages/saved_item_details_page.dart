@@ -9,10 +9,14 @@ class SavedItemDetailsPage extends StatelessWidget {
     super.key,
     required this.itemId,
     required this.onAction,
+    required this.onEdit,
+    required this.onRemoveReminder,
   });
 
   final String itemId;
   final Future<void> Function(SavedItem, ItemAction) onAction;
+  final Future<void> Function(SavedItem) onEdit;
+  final Future<void> Function(SavedItem) onRemoveReminder;
 
   @override
   Widget build(
@@ -37,6 +41,11 @@ class SavedItemDetailsPage extends StatelessWidget {
         appBar: AppBar(
           title: const Text('Saved item'),
           actions: [
+            IconButton(
+              tooltip: 'Edit',
+              onPressed: () => onEdit(item),
+              icon: const Icon(Icons.edit_outlined),
+            ),
             IconButton(
               tooltip: 'Delete',
               onPressed: () => onAction(item, ItemAction.delete),
@@ -93,25 +102,65 @@ class SavedItemDetailsPage extends StatelessWidget {
               const SizedBox(height: 6),
               SelectableText(sharedText),
             ],
-            const SizedBox(height: 24),
-            Text(
-              'Original link',
-              style: Theme.of(context).textTheme.titleSmall,
-            ),
-            const SizedBox(height: 6),
-            SelectableText(item.url),
+            if (item.hasLink) ...[
+              const SizedBox(height: 24),
+              Text(
+                'Original link',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 6),
+              SelectableText(item.url),
+            ],
             const SizedBox(height: 20),
             Text(
               'Saved ${MaterialLocalizations.of(context).formatFullDate(date)} at ${TimeOfDay.fromDateTime(date).format(context)}',
               style: Theme.of(context).textTheme.bodySmall,
             ),
+            if (item.tag case final tag?) ...[
+              const SizedBox(height: 16),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Chip(label: Text(tag)),
+              ),
+            ],
+            if (item.notes case final notes?) ...[
+              const SizedBox(height: 16),
+              Text('Notes', style: Theme.of(context).textTheme.titleSmall),
+              const SizedBox(height: 6),
+              Text(notes),
+            ],
+            if (item.hasReminder && item.reminderAt != null) ...[
+              const SizedBox(height: 16),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.notifications_active_outlined),
+                title: Text(
+                  '${MaterialLocalizations.of(context).formatShortDate(item.reminderAt!.toLocal())} · ${TimeOfDay.fromDateTime(item.reminderAt!.toLocal()).format(context)}',
+                ),
+                subtitle: Text(
+                  item.repeatType.name == 'never'
+                      ? 'One-time reminder'
+                      : 'Repeats ${item.repeatType.name}',
+                ),
+                trailing: TextButton(
+                  onPressed: () => onRemoveReminder(item),
+                  child: Text(
+                    item.repeatType.name == 'never'
+                        ? 'Remove'
+                        : 'Stop repeating',
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: () => onAction(item, ItemAction.open),
-              icon: const Icon(Icons.open_in_new_rounded),
-              label: const Text('Open original'),
-            ),
-            const SizedBox(height: 8),
+            if (item.hasLink) ...[
+              FilledButton.icon(
+                onPressed: () => onAction(item, ItemAction.open),
+                icon: const Icon(Icons.open_in_new_rounded),
+                label: const Text('Open original'),
+              ),
+              const SizedBox(height: 8),
+            ],
             Row(
               children: [
                 Expanded(

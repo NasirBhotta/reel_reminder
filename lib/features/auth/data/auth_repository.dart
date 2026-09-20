@@ -8,18 +8,20 @@ class AuthRepository {
   final FirebaseAuth auth;
   final FirebaseFirestore firestore;
   Stream<User?> get changes => auth.authStateChanges();
-  Future<void> login(String email, String password) async {
-    await auth.signInWithEmailAndPassword(
+  Future<User?> login(String email, String password) async {
+    final credential = await auth.signInWithEmailAndPassword(
       email: email.trim(),
       password: password,
     );
+    return credential.user;
   }
 
-  Future<void> register(String email, String password) async {
-    await auth.createUserWithEmailAndPassword(
+  Future<User?> register(String email, String password) async {
+    final credential = await auth.createUserWithEmailAndPassword(
       email: email.trim(),
       password: password,
     );
+    return credential.user;
   }
 
   Future<void> ensureProfile(String uid) async {
