@@ -1,17 +1,29 @@
 import 'package:flutter/material.dart';
+import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/content.dart';
+import '../../../reminders/domain/reminder.dart';
 import '../../domain/saved_item.dart';
 
 enum ItemAction { details, open, copy, share, retryPreview, favorite, delete }
 
 IconData platformIcon(ContentPlatform platform) => switch (platform) {
-  ContentPlatform.youtube => Icons.play_circle_outline_rounded,
-  ContentPlatform.instagram => Icons.camera_alt_outlined,
+  ContentPlatform.youtube => Icons.play_circle_fill_rounded,
+  ContentPlatform.instagram => Icons.camera_alt_rounded,
   ContentPlatform.tiktok => Icons.music_note_rounded,
-  ContentPlatform.facebook => Icons.people_outline_rounded,
+  ContentPlatform.facebook => Icons.facebook_rounded,
   ContentPlatform.x => Icons.alternate_email_rounded,
-  ContentPlatform.reddit => Icons.forum_outlined,
+  ContentPlatform.reddit => Icons.forum_rounded,
   ContentPlatform.website => Icons.language_rounded,
+};
+
+Color platformColor(ContentPlatform platform) => switch (platform) {
+  ContentPlatform.youtube => const Color(0xFFFF0000),
+  ContentPlatform.instagram => const Color(0xFFE1306C),
+  ContentPlatform.tiktok => const Color(0xFF000000),
+  ContentPlatform.facebook => const Color(0xFF1877F2),
+  ContentPlatform.x => const Color(0xFF1DA1F2),
+  ContentPlatform.reddit => const Color(0xFFFF4500),
+  ContentPlatform.website => AppTheme.brand,
 };
 
 class SavedItemCard extends StatelessWidget {
@@ -22,6 +34,7 @@ class SavedItemCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
     final date = item.createdAt.toLocal();
     final image = Uri.tryParse(item.thumbnailUrl ?? '');
     final hasImage =
@@ -35,10 +48,10 @@ class SavedItemCard extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               ClipRRect(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(14),
                 child: SizedBox(
                   width: 84,
                   height: 84,
@@ -71,18 +84,20 @@ class SavedItemCard extends StatelessWidget {
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w600,
-                              height: 1.2,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14.5,
+                              height: 1.25,
                             ),
                           ),
                         ),
                         SizedBox(
-                          width: 34,
-                          height: 30,
+                          width: 32,
+                          height: 28,
                           child: PopupMenuButton<ItemAction>(
                             padding: EdgeInsets.zero,
                             tooltip: 'Item actions',
                             onSelected: onAction,
+                            icon: const Icon(Icons.more_vert_rounded, size: 20),
                             itemBuilder: (_) => [
                               const PopupMenuItem(
                                 value: ItemAction.details,
@@ -117,13 +132,13 @@ class SavedItemCard extends StatelessWidget {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 7),
+                    const SizedBox(height: 5),
                     Row(
                       children: [
                         Icon(
                           platformIcon(item.platform),
                           size: 15,
-                          color: theme.colorScheme.primary,
+                          color: platformColor(item.platform),
                         ),
                         const SizedBox(width: 5),
                         Expanded(
@@ -133,7 +148,10 @@ class SavedItemCard extends StatelessWidget {
                                 : '${item.displaySource} · ${item.displayDomain}',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodySmall,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                         ),
                       ],
@@ -153,52 +171,36 @@ class SavedItemCard extends StatelessWidget {
                             '${MaterialLocalizations.of(context).formatShortDate(date)} · ${TimeOfDay.fromDateTime(date).format(context)}',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.labelSmall,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: theme.colorScheme.outline,
+                              fontSize: 11.5,
+                            ),
                           ),
                         ),
                         SizedBox(
-                          width: 34,
-                          height: 30,
+                          width: 32,
+                          height: 28,
                           child: IconButton(
                             padding: EdgeInsets.zero,
                             tooltip: item.isFavorite
                                 ? 'Remove favorite'
                                 : 'Favorite',
                             onPressed: () => onAction(ItemAction.favorite),
-                            iconSize: 20,
+                            iconSize: 21,
                             icon: Icon(
                               item.isFavorite
                                   ? Icons.star_rounded
                                   : Icons.star_outline_rounded,
+                              color: item.isFavorite
+                                  ? (dark ? AppTheme.mint : AppTheme.brand)
+                                  : theme.colorScheme.outline,
                             ),
                           ),
                         ),
                       ],
                     ),
-                    if (item.hasReminder && item.reminderAt != null) ...[
-                      const SizedBox(height: 5),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.notifications_none_rounded,
-                            size: 15,
-                            color: theme.colorScheme.primary,
-                          ),
-                          const SizedBox(width: 5),
-                          Expanded(
-                            child: Text(
-                              '${MaterialLocalizations.of(context).formatShortDate(item.reminderAt!.toLocal())} · ${TimeOfDay.fromDateTime(item.reminderAt!.toLocal()).format(context)}${item.repeatType.name == 'never' ? '' : '  ↻ ${item.repeatType.name}'}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: theme.colorScheme.primary,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+                    const SizedBox(height: 6),
+                    _buildReminderBadge(context, dark),
                   ],
                 ),
               ),
@@ -208,6 +210,101 @@ class SavedItemCard extends StatelessWidget {
       ),
     );
   }
+
+  Widget _buildReminderBadge(BuildContext context, bool dark) {
+    if (item.hasReminder && item.reminderAt != null) {
+      final isRepeating = item.repeatType != RepeatType.never;
+      final bg = isRepeating
+          ? (dark ? AppTheme.repeatBgDark : AppTheme.repeatBgLight)
+          : (dark ? AppTheme.reminderBgDark : AppTheme.reminderBgLight);
+      final text = isRepeating
+          ? (dark ? AppTheme.repeatTextDark : AppTheme.repeatTextLight)
+          : (dark ? AppTheme.reminderTextDark : AppTheme.reminderTextLight);
+      final icon = isRepeating ? Icons.repeat_rounded : Icons.schedule_rounded;
+
+      final reminderDate = item.reminderAt!.toLocal();
+      final dateStr = _formatReminderTime(context, reminderDate);
+      final label = isRepeating
+          ? 'Repeat ${_repeatLabel(item.repeatType)}'
+          : 'Reminder: $dateStr';
+
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3.5),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(100),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 12.5, color: text),
+            const SizedBox(width: 4.5),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: text,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: dark ? AppTheme.neutralBgDark : AppTheme.neutralBgLight,
+        borderRadius: BorderRadius.circular(100),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.notifications_off_outlined,
+            size: 11.5,
+            color: dark ? AppTheme.neutralTextDark : AppTheme.neutralTextLight,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            'No reminder',
+            style: TextStyle(
+              color: dark
+                  ? AppTheme.neutralTextDark
+                  : AppTheme.neutralTextLight,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatReminderTime(BuildContext context, DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final target = DateTime(date.year, date.month, date.day);
+    final diff = target.difference(today).inDays;
+    final timeStr = TimeOfDay.fromDateTime(date).format(context);
+
+    if (diff == 0) return 'Today · $timeStr';
+    if (diff == 1) return 'Tomorrow · $timeStr';
+    return '${MaterialLocalizations.of(context).formatShortDate(date)} · $timeStr';
+  }
+
+  String _repeatLabel(RepeatType repeat) => switch (repeat) {
+    RepeatType.daily => 'daily',
+    RepeatType.weekly => 'weekly',
+    RepeatType.monthly => 'monthly',
+    RepeatType.custom => 'custom',
+    RepeatType.never => 'never',
+  };
 }
 
 class _ThumbnailPlaceholder extends StatelessWidget {
@@ -215,14 +312,31 @@ class _ThumbnailPlaceholder extends StatelessWidget {
   final ContentPlatform platform;
 
   @override
-  Widget build(BuildContext context) => ColoredBox(
-    color: Theme.of(context).colorScheme.surfaceContainerHighest,
-    child: Center(
-      child: Icon(
-        platformIcon(platform),
-        size: 30,
-        color: Theme.of(context).colorScheme.onSurfaceVariant,
-      ),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final bg = switch (platform) {
+      ContentPlatform.facebook => const Color(0xFF1877F2),
+      ContentPlatform.youtube => const Color(0xFFFF0000),
+      ContentPlatform.tiktok => const Color(0xFF000000),
+      ContentPlatform.instagram => const Color(0xFF833AB4),
+      ContentPlatform.x => const Color(0xFF111111),
+      ContentPlatform.reddit => const Color(0xFFFF4500),
+      ContentPlatform.website =>
+        Theme.of(context).brightness == Brightness.dark
+            ? const Color(0xFF1B382D)
+            : AppTheme.paleMint,
+    };
+
+    final fg = switch (platform) {
+      ContentPlatform.website =>
+        Theme.of(context).brightness == Brightness.dark
+            ? AppTheme.mint
+            : AppTheme.brand,
+      _ => Colors.white,
+    };
+
+    return ColoredBox(
+      color: bg,
+      child: Center(child: Icon(platformIcon(platform), size: 32, color: fg)),
+    );
+  }
 }

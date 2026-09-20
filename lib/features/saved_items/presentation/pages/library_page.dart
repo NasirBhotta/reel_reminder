@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/services/share_service.dart';
 import '../../../../core/services/telemetry.dart';
+import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/content.dart';
 import '../../../profile/presentation/profile_page.dart';
 import '../../domain/saved_item.dart';
@@ -40,7 +41,8 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
   Timer? _clock;
   StreamSubscription<ReminderResponse>? _reminderActions;
   final _search = TextEditingController();
-  bool _searchVisible = false;
+  final _searchFocusNode = FocusNode();
+
   @override
   void initState() {
     super.initState();
@@ -51,6 +53,9 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
     _reminderActions = context.read<ReminderService>().responses.listen(
       _handleReminderResponse,
     );
+    _searchFocusNode.addListener(() {
+      if (mounted) setState(() {});
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final pending = context.read<ReminderService>().takePendingResponse();
@@ -72,6 +77,7 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
   @override
   void dispose() {
     _search.dispose();
+    _searchFocusNode.dispose();
     _clock?.cancel();
     _reminderActions?.cancel();
     widget.shares.dispose();
@@ -115,64 +121,101 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
     }
   }
 
-  void _message(String value) => ScaffoldMessenger.of(
-    context,
-  ).showSnackBar(SnackBar(content: Text(value)));
+  void _message(String text) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(text)));
+  }
 
-  Future<void> _showSave([SavedItem? item]) => showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
-    showDragHandle: false,
-    builder: (_) => MultiRepositoryProvider(
-      providers: [
-        RepositoryProvider.value(value: context.read<ReminderService>()),
-      ],
-      child: BlocProvider.value(
+  Future<void> _showSave([SavedItem? item]) async {
+    await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => BlocProvider.value(
         value: context.read<SavedItemsBloc>(),
         child: SaveFindSheet(item: item),
       ),
-    ),
-  );
+    );
+  }
 
   Future<void> _handleReminderResponse(ReminderResponse response) async {
-    if (!mounted) return;
-    final items = context.read<SavedItemsBloc>().state.items;
-    final matches = items.where((item) => item.id == response.itemId);
+    final bloc = context.read<SavedItemsBloc>();
+    final matches = bloc.state.items.where(
+      (item) => item.id == response.itemId,
+    );
     if (matches.isEmpty) return;
     final item = matches.first;
     switch (response.action) {
       case ReminderAction.open:
-        await _action(item, ItemAction.details);
-      case ReminderAction.done:
-        _message(
-          item.repeatType == RepeatType.never
-              ? 'Reminder completed.'
-              : 'This occurrence is done. The next repeat stays scheduled.',
-        );
+        await _action(item, ItemAction.open);
       case ReminderAction.snooze:
-        await _chooseSnooze(item);
+        await _snoozeReminder(item);
+      case ReminderAction.done:
+        await _doneReminder(item);
     }
   }
 
-  Future<void> _chooseSnooze(SavedItem item) async {
+  Future<void> _doneReminder(SavedItem item) async {
+    final bloc = context.read<SavedItemsBloc>();
     final reminders = context.read<ReminderService>();
-    var duration = await showModalBottomSheet<Duration>(
+    final next = ReminderCalculator.nextOccurrence(
+      scheduled: item.reminderAt ?? DateTime.now(),
+      repeat: item.repeatType,
+      after: DateTime.now(),
+      customIntervalDays: item.customIntervalDays,
+    );
+    if (next == null) {
+      await _removeReminder(item);
+      if (mounted) _message('Reminder completed.');
+      return;
+    }
+    final completer = Completer<void>();
+    bloc.add(
+      UpdateRequested(
+        item,
+        SavedItemDraft(
+          content: item.url.isNotEmpty ? item.url : item.sharedText ?? '',
+          url: Uri.tryParse(item.url),
+          title: item.title,
+          tag: item.tag,
+          notes: item.notes,
+          reminderAt: next,
+          repeatType: item.repeatType,
+          customIntervalDays: item.customIntervalDays,
+        ),
+        completer,
+      ),
+    );
+    await completer.future;
+    await reminders.schedule(
+      itemId: item.id,
+      title: item.displayTitle,
+      at: next,
+      repeat: item.repeatType,
+      customIntervalDays: item.customIntervalDays,
+    );
+    if (mounted) _message('Reminder advanced to next repeat occurrence.');
+  }
+
+  Future<void> _snoozeReminder(SavedItem item) async {
+    final reminders = context.read<ReminderService>();
+    final duration = await showModalBottomSheet<Duration>(
       context: context,
       builder: (context) => SafeArea(
-        child: Wrap(
+        child: ListView(
+          shrinkWrap: true,
           children: [
-            const ListTile(title: Text('Snooze reminder')),
             ListTile(
-              title: const Text('10 minutes'),
+              title: const Text('Snooze 10 minutes'),
               onTap: () => Navigator.pop(context, const Duration(minutes: 10)),
             ),
             ListTile(
-              title: const Text('1 hour'),
+              title: const Text('Snooze 1 hour'),
               onTap: () => Navigator.pop(context, const Duration(hours: 1)),
             ),
             ListTile(
-              title: const Text('Tonight'),
+              title: const Text('Tonight (8 PM)'),
               onTap: () => Navigator.pop(
                 context,
                 ReminderCalculator.tonight(
@@ -181,7 +224,7 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
               ),
             ),
             ListTile(
-              title: const Text('Tomorrow'),
+              title: const Text('Tomorrow (9 AM)'),
               onTap: () => Navigator.pop(
                 context,
                 ReminderCalculator.tomorrow(
@@ -190,7 +233,7 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
               ),
             ),
             ListTile(
-              title: const Text('Custom…'),
+              title: const Text('Custom snooze…'),
               onTap: () => Navigator.pop(context, Duration.zero),
             ),
           ],
@@ -212,14 +255,21 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
         initialTime: TimeOfDay.fromDateTime(now.add(const Duration(hours: 1))),
       );
       if (time == null) return;
-      duration = DateTime(
+      final customDuration = DateTime(
         date.year,
         date.month,
         date.day,
         time.hour,
         time.minute,
       ).difference(now);
-      if (duration.isNegative) return;
+      if (customDuration.isNegative) return;
+      await reminders.snooze(
+        itemId: item.id,
+        title: item.displayTitle,
+        until: DateTime.now().add(customDuration),
+      );
+      if (mounted) _message('Reminder snoozed.');
+      return;
     }
     await reminders.snooze(
       itemId: item.id,
@@ -328,198 +378,280 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
   }
 
   @override
-  Widget build(
-    BuildContext context,
-  ) => BlocConsumer<SavedItemsBloc, SavedItemsState>(
-    listenWhen: (previous, current) => previous.notice != current.notice,
-    listener: (context, state) {
-      if (state.message != null) _message(state.message!);
-    },
-    builder: (context, state) => Scaffold(
-      appBar: AppBar(
-        title: Text(_tab == 0 ? 'Reel Reminder' : 'Your account'),
-        actions: [
-          if (_tab == 0)
-            IconButton(
-              tooltip: 'Refresh and retry shares',
-              onPressed: () {
-                context.read<SavedItemsBloc>().add(ItemsStarted());
-                unawaited(_drain());
-              },
-              icon: const Icon(Icons.refresh),
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+
+    return BlocConsumer<SavedItemsBloc, SavedItemsState>(
+      listenWhen: (previous, current) => previous.notice != current.notice,
+      listener: (context, state) {
+        if (state.message != null) _message(state.message!);
+      },
+      builder: (context, state) => Scaffold(
+        appBar: AppBar(toolbarHeight: 0),
+        bottomNavigationBar: Container(
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            border: Border(
+              top: BorderSide(color: theme.dividerColor, width: 1),
             ),
-        ],
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-      floatingActionButton: FloatingActionButton.large(
-        tooltip: 'Add a find',
-        onPressed: _showSave,
-        child: const Icon(Icons.add_rounded, size: 32),
-      ),
-      bottomNavigationBar: BottomAppBar(
-        notchMargin: 8,
-        shape: const CircularNotchedRectangle(),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            _NavAction(
-              label: 'Home',
-              icon: _tab == 0
-                  ? Icons.bookmarks_rounded
-                  : Icons.bookmarks_outlined,
-              selected: _tab == 0,
-              onTap: () => setState(() => _tab = 0),
-            ),
-            const SizedBox(width: 72),
-            _NavAction(
-              label: 'Profile',
-              icon: _tab == 1
-                  ? Icons.person_rounded
-                  : Icons.person_outline_rounded,
-              selected: _tab == 1,
-              onTap: () => setState(() => _tab = 1),
-            ),
-          ],
-        ),
-      ),
-      body: _tab == 1
-          ? ProfilePage(
-              themeMode: widget.themeMode,
-              onThemeChanged: widget.onThemeChanged,
-            )
-          : Column(
+          ),
+          padding: const EdgeInsets.only(top: 8, bottom: 8),
+          child: SafeArea(
+            top: false,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Your saved finds',
-                        style: Theme.of(context).textTheme.headlineMedium
-                            ?.copyWith(
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: -0.7,
-                            ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        _searchVisible
-                            ? 'Search stays right here in Home.'
-                            : 'Links, products and more — all in one place. Pull down to search.',
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                    ],
-                  ),
+                _NavBarItem(
+                  label: 'Home',
+                  icon: _tab == 0 ? Icons.home_rounded : Icons.home_outlined,
+                  selected: _tab == 0,
+                  onTap: () => setState(() => _tab = 0),
                 ),
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 220),
-                  child: !_searchVisible
-                      ? const SizedBox.shrink()
-                      : Padding(
-                          key: const ValueKey('search'),
-                          padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                          child: TextField(
-                            controller: _search,
-                            autofocus: false,
-                            textInputAction: TextInputAction.search,
-                            decoration: InputDecoration(
-                              prefixIcon: const Icon(Icons.search),
-                              hintText: 'Search title, text, source, or link',
-                              suffixIcon: _search.text.isEmpty
-                                  ? IconButton(
-                                      tooltip: 'Close search',
-                                      onPressed: () => setState(
-                                        () => _searchVisible = false,
-                                      ),
-                                      icon: const Icon(Icons.close_rounded),
-                                    )
-                                  : IconButton(
-                                      tooltip: 'Clear search',
-                                      onPressed: () {
-                                        _search.clear();
-                                        setState(() {});
-                                        context.read<SavedItemsBloc>().add(
-                                          SearchChanged(''),
-                                        );
-                                      },
-                                      icon: const Icon(Icons.clear_rounded),
-                                    ),
-                            ),
-                            onChanged: (query) {
-                              setState(() {});
-                              context.read<SavedItemsBloc>().add(
-                                SearchChanged(query),
-                              );
-                            },
-                          ),
-                        ),
-                ),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Row(
-                    children: DateFilter.values
-                        .map(
-                          (filter) => Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: ChoiceChip(
-                              label: Text(switch (filter) {
-                                DateFilter.today => 'Today',
-                                DateFilter.yesterday => 'Yesterday',
-                                DateFilter.week => 'This Week',
-                                DateFilter.month => 'This Month',
-                                DateFilter.all => 'All',
-                              }),
-                              selected: state.filter == filter,
-                              onSelected: (_) => context
-                                  .read<SavedItemsBloc>()
-                                  .add(FilterChanged(filter)),
-                            ),
-                          ),
-                        )
-                        .toList(),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      _searchVisible && state.query.trim().isNotEmpty
-                          ? '${state.visible(DateTime.now(), search: true).length} results in loaded items'
-                          : '${state.items.length} loaded · filters use loaded items',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ),
-                ),
-                if (state.items.length >=
-                    context.read<SavedItemsBloc>().loadLimit)
-                  TextButton(
-                    onPressed: () => context.read<SavedItemsBloc>().add(
-                      ItemsStarted(loadMore: true),
-                    ),
-                    child: const Text('Load older finds'),
-                  ),
-                Expanded(
-                  child: NotificationListener<OverscrollNotification>(
-                    onNotification: (notification) {
-                      if (notification.overscroll < -8 && !_searchVisible) {
-                        setState(() => _searchVisible = true);
-                      }
-                      return false;
-                    },
-                    child: _timeline(state),
-                  ),
+                _NavAddButton(onTap: _showSave),
+                _NavBarItem(
+                  label: 'Profile',
+                  icon: _tab == 1
+                      ? Icons.person_rounded
+                      : Icons.person_outline_rounded,
+                  selected: _tab == 1,
+                  onTap: () => setState(() => _tab = 1),
                 ),
               ],
             ),
-    ),
-  );
+          ),
+        ),
+        body: _tab == 1
+            ? ProfilePage(
+                themeMode: widget.themeMode,
+                onThemeChanged: widget.onThemeChanged,
+              )
+            : SafeArea(
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Your saved finds',
+                                  style: theme.textTheme.headlineMedium
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: -0.8,
+                                      ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Links, products and more — all in one place.',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: dark
+                                    ? const Color(0xFF30483F)
+                                    : const Color(0xFFD9E9E1),
+                              ),
+                            ),
+                            child: IconButton(
+                              tooltip: 'Search your finds',
+                              onPressed: () {
+                                if (!_searchFocusNode.hasFocus) {
+                                  _searchFocusNode.requestFocus();
+                                } else {
+                                  context.read<SavedItemsBloc>().add(
+                                    ItemsStarted(),
+                                  );
+                                  unawaited(_drain());
+                                }
+                              },
+                              icon: const Icon(Icons.search_rounded),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: dark
+                                    ? const Color(0xFF14241F)
+                                    : Colors.white,
+                                borderRadius: BorderRadius.circular(
+                                  AppRadius.md,
+                                ),
+                                border: Border.all(
+                                  color:
+                                      (_searchFocusNode.hasFocus ||
+                                          _search.text.isNotEmpty)
+                                      ? (dark ? AppTheme.mint : AppTheme.brand)
+                                      : (dark
+                                            ? const Color(0xFF30483F)
+                                            : const Color(0xFFD9E9E1)),
+                                  width:
+                                      (_searchFocusNode.hasFocus ||
+                                          _search.text.isNotEmpty)
+                                      ? 1.8
+                                      : 1.0,
+                                ),
+                              ),
+                              child: TextField(
+                                controller: _search,
+                                focusNode: _searchFocusNode,
+                                textInputAction: TextInputAction.search,
+                                decoration: InputDecoration(
+                                  filled: false,
+                                  border: InputBorder.none,
+                                  enabledBorder: InputBorder.none,
+                                  focusedBorder: InputBorder.none,
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 12,
+                                  ),
+                                  prefixIcon: Icon(
+                                    Icons.search_rounded,
+                                    color:
+                                        (_searchFocusNode.hasFocus ||
+                                            _search.text.isNotEmpty)
+                                        ? (dark
+                                              ? AppTheme.mint
+                                              : AppTheme.brand)
+                                        : theme.colorScheme.outline,
+                                  ),
+                                  hintText: 'Search your finds...',
+                                  hintStyle: TextStyle(
+                                    color: theme.colorScheme.outline,
+                                  ),
+                                  suffixIcon: _search.text.isNotEmpty
+                                      ? IconButton(
+                                          tooltip: 'Clear search',
+                                          onPressed: () {
+                                            _search.clear();
+                                            setState(() {});
+                                            context.read<SavedItemsBloc>().add(
+                                              SearchChanged(''),
+                                            );
+                                          },
+                                          icon: const Icon(Icons.close_rounded),
+                                        )
+                                      : null,
+                                ),
+                                onChanged: (query) {
+                                  setState(() {});
+                                  context.read<SavedItemsBloc>().add(
+                                    SearchChanged(query),
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+                          if (_searchFocusNode.hasFocus ||
+                              _search.text.isNotEmpty) ...[
+                            const SizedBox(width: 8),
+                            TextButton(
+                              onPressed: () {
+                                _search.clear();
+                                _searchFocusNode.unfocus();
+                                context.read<SavedItemsBloc>().add(
+                                  SearchChanged(''),
+                                );
+                                setState(() {});
+                              },
+                              child: Text(
+                                'Cancel',
+                                style: TextStyle(
+                                  color: dark ? AppTheme.mint : AppTheme.brand,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Row(
+                        children:
+                            [
+                              DateFilter.today,
+                              DateFilter.yesterday,
+                              DateFilter.week,
+                              DateFilter.month,
+                              DateFilter.all,
+                            ].map((filter) {
+                              final isSelected = state.filter == filter;
+                              return Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: ChoiceChip(
+                                  label: Text(switch (filter) {
+                                    DateFilter.today => 'Today',
+                                    DateFilter.yesterday => 'Yesterday',
+                                    DateFilter.week => 'This Week',
+                                    DateFilter.month => 'This Month',
+                                    DateFilter.all => 'All',
+                                  }),
+                                  selected: isSelected,
+                                  onSelected: (_) => context
+                                      .read<SavedItemsBloc>()
+                                      .add(FilterChanged(filter)),
+                                ),
+                              );
+                            }).toList(),
+                      ),
+                    ),
+                    if (state.items.length >=
+                        context.read<SavedItemsBloc>().loadLimit)
+                      TextButton(
+                        onPressed: () => context.read<SavedItemsBloc>().add(
+                          ItemsStarted(loadMore: true),
+                        ),
+                        child: const Text('Load older finds'),
+                      ),
+                    Expanded(
+                      child: NotificationListener<OverscrollNotification>(
+                        onNotification: (notification) {
+                          if (notification.overscroll < -8 &&
+                              !_searchFocusNode.hasFocus) {
+                            _searchFocusNode.requestFocus();
+                          }
+                          return false;
+                        },
+                        child: _timeline(state),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+      ),
+    );
+  }
+
   Widget _timeline(SavedItemsState state) {
     if (state.loading) return const Center(child: CircularProgressIndicator());
     final now = DateTime.now();
-    final items = state.visible(now, search: _searchVisible);
+    final isSearching = _search.text.trim().isNotEmpty;
+    final items = state.visible(now, search: isSearching);
+
     if (items.isEmpty) {
       return Center(
         child: Padding(
@@ -532,7 +664,7 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
               Text(
                 state.items.isEmpty
                     ? 'Your next good find belongs here.'
-                    : _searchVisible && state.query.trim().isNotEmpty
+                    : isSearching
                     ? 'No search results'
                     : 'No finds in this date range',
                 textAlign: TextAlign.center,
@@ -542,7 +674,7 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
               Text(
                 state.items.isEmpty
                     ? 'Open TikTok, Instagram, YouTube, or another app → tap Share → choose Reel Reminder.'
-                    : _searchVisible && state.query.trim().isNotEmpty
+                    : isSearching
                     ? 'Try a shorter title, source, or link.'
                     : 'Try another date filter.',
                 textAlign: TextAlign.center,
@@ -557,6 +689,13 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
         ),
       );
     }
+
+    final groupCounts = <String, int>{};
+    for (final item in items) {
+      final group = DateHistory.group(item.createdAt, now);
+      groupCounts[group] = (groupCounts[group] ?? 0) + 1;
+    }
+
     return RefreshIndicator(
       onRefresh: () async {
         context.read<SavedItemsBloc>().add(ItemsStarted());
@@ -564,7 +703,7 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
       },
       child: ListView.builder(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
         itemCount: items.length,
         itemBuilder: (context, index) {
           final item = items[index];
@@ -572,18 +711,34 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
           final header =
               index == 0 ||
               DateHistory.group(items[index - 1].createdAt, now) != group;
+          final count = groupCounts[group] ?? 1;
+
           return Column(
             key: ValueKey(item.id),
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (header)
                 Padding(
-                  padding: const EdgeInsets.only(top: 10, bottom: 12),
-                  child: Text(
-                    group,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                  padding: const EdgeInsets.only(top: 8, bottom: 12),
+                  child: Row(
+                    children: [
+                      Text(
+                        group,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 16,
+                            ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '$count items',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.outline,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               SavedItemCard(
@@ -598,8 +753,8 @@ class _LibraryPageState extends State<LibraryPage> with WidgetsBindingObserver {
   }
 }
 
-class _NavAction extends StatelessWidget {
-  const _NavAction({
+class _NavBarItem extends StatelessWidget {
+  const _NavBarItem({
     required this.label,
     required this.icon,
     required this.selected,
@@ -611,31 +766,98 @@ class _NavAction extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => InkResponse(
-    onTap: onTap,
-    radius: 34,
-    child: SizedBox(
-      width: 88,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            icon,
-            color: selected
-                ? Theme.of(context).colorScheme.primary
-                : Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-          const SizedBox(height: 3),
-          Text(
-            label,
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: selected ? Theme.of(context).colorScheme.primary : null,
-              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    final activeColor = dark ? AppTheme.mint : AppTheme.brand;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
+              decoration: BoxDecoration(
+                color: selected
+                    ? (dark ? const Color(0xFF19382B) : AppTheme.paleMint)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(100),
+              ),
+              child: Icon(
+                icon,
+                color: selected
+                    ? activeColor
+                    : theme.colorScheme.onSurfaceVariant,
+                size: 24,
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 3),
+            Text(
+              label,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: selected
+                    ? activeColor
+                    : theme.colorScheme.onSurfaceVariant,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
+}
+
+class _NavAddButton extends StatelessWidget {
+  const _NavAddButton({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    final buttonColor = dark ? AppTheme.mint : AppTheme.brand;
+    final iconColor = dark ? AppTheme.ink : Colors.white;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 44,
+              height: 32,
+              decoration: BoxDecoration(
+                color: buttonColor,
+                borderRadius: BorderRadius.circular(100),
+                boxShadow: [
+                  BoxShadow(
+                    color: buttonColor.withValues(alpha: 0.35),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Icon(Icons.add_rounded, color: iconColor, size: 24),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              'Add',
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

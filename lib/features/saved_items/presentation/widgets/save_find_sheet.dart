@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/services/link_metadata_service.dart';
+import '../../../../core/theme/app_theme.dart';
 import '../../../reminders/data/reminder_service.dart';
 import '../../../reminders/domain/reminder.dart';
 import '../../domain/saved_item.dart';
@@ -22,9 +23,10 @@ class _SaveFindSheetState extends State<SaveFindSheet> {
   late final TextEditingController _notes;
   bool _remind = false, _saving = false, _previewing = false;
   DateTime _date = DateTime.now().add(const Duration(days: 1));
-  TimeOfDay _time = const TimeOfDay(hour: 9, minute: 0);
+  TimeOfDay _time = const TimeOfDay(hour: 20, minute: 0);
   RepeatType _repeat = RepeatType.never;
   int _customDays = 2;
+  String _snoozeChoice = '10 min';
   String? _previewSite, _previewImage;
 
   @override
@@ -139,157 +141,336 @@ class _SaveFindSheetState extends State<SaveFindSheet> {
   String? _nullIfEmpty(String value) =>
       value.trim().isEmpty ? null : value.trim();
 
+  String _formatFriendlyDate(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final target = DateTime(date.year, date.month, date.day);
+    final diff = target.difference(today).inDays;
+    final formatted = MaterialLocalizations.of(context).formatMediumDate(date);
+    if (diff == 0) return 'Today, $formatted';
+    if (diff == 1) return 'Tomorrow, $formatted';
+    return formatted;
+  }
+
   @override
   Widget build(BuildContext context) {
     final bottom = MediaQuery.viewInsetsOf(context).bottom;
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+
     return Padding(
-      padding: EdgeInsets.fromLTRB(20, 12, 20, bottom + 24),
+      padding: EdgeInsets.fromLTRB(20, 10, 20, bottom + 24),
       child: ListView(
         shrinkWrap: true,
         children: [
-          Center(
-            child: Container(
-              width: 42,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.outlineVariant,
-                borderRadius: BorderRadius.circular(4),
+          Row(
+            children: [
+              IconButton(
+                tooltip: 'Close',
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close_rounded),
               ),
+              const Spacer(),
+              if (_remind)
+                TextButton(
+                  onPressed: _saving
+                      ? null
+                      : () {
+                          setState(() => _remind = false);
+                          unawaited(_save());
+                        },
+                  child: Text(
+                    'Save without reminder',
+                    style: TextStyle(
+                      color: dark ? AppTheme.mint : AppTheme.brand,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            widget.item == null ? 'Save this find' : 'Edit saved find',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.5,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Add reminder (optional) and keep it for later.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
           const SizedBox(height: 18),
-          Text(
-            widget.item == null ? 'Save this find' : 'Edit saved find',
-            style: Theme.of(
-              context,
-            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 6),
-          const Text('A reminder is optional. Your find is saved either way.'),
-          const SizedBox(height: 20),
-          TextField(
-            controller: _content,
-            minLines: 1,
-            maxLines: 4,
-            enabled: widget.item == null,
-            decoration: InputDecoration(
-              labelText: 'URL or text',
-              suffixIcon: _url == null
-                  ? null
-                  : IconButton(
-                      tooltip: 'Load preview',
-                      onPressed: _previewing ? null : _preview,
-                      icon: _previewing
-                          ? const Padding(
-                              padding: EdgeInsets.all(12),
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.auto_awesome_outlined),
-                    ),
-            ),
-            onSubmitted: (_) => unawaited(_preview()),
-            onChanged: (_) => setState(() {}),
-          ),
-          if (_previewSite != null) ...[
-            const SizedBox(height: 12),
-            Card(
-              child: ListTile(
-                leading: _previewImage == null
-                    ? const Icon(Icons.link_rounded)
-                    : ClipRRect(
-                        borderRadius: BorderRadius.circular(9),
-                        child: Image.network(
-                          _previewImage!,
-                          width: 48,
-                          height: 48,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) =>
-                              const Icon(Icons.link_rounded),
-                        ),
-                      ),
-                title: Text(
-                  _title.text.trim().isEmpty ? 'Preview' : _title.text,
+          if (_previewSite != null ||
+              _previewImage != null ||
+              widget.item != null) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: dark ? const Color(0xFF14241F) : Colors.white,
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                border: Border.all(
+                  color: dark
+                      ? const Color(0xFF263A33)
+                      : const Color(0xFFE1EEE8),
                 ),
-                subtitle: Text(_previewSite!),
+              ),
+              child: Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: SizedBox(
+                      width: 52,
+                      height: 52,
+                      child: _previewImage != null
+                          ? Image.network(
+                              _previewImage!,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) => ColoredBox(
+                                color: dark
+                                    ? const Color(0xFF1E382D)
+                                    : AppTheme.paleMint,
+                                child: Icon(
+                                  Icons.link_rounded,
+                                  color: dark ? AppTheme.mint : AppTheme.brand,
+                                ),
+                              ),
+                            )
+                          : ColoredBox(
+                              color: dark
+                                  ? const Color(0xFF1E382D)
+                                  : AppTheme.paleMint,
+                              child: Icon(
+                                Icons.link_rounded,
+                                color: dark ? AppTheme.mint : AppTheme.brand,
+                              ),
+                            ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _title.text.trim().isNotEmpty
+                              ? _title.text.trim()
+                              : widget.item?.displayTitle ?? 'Saved Link',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.language_rounded,
+                              size: 13,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                _previewSite ??
+                                    widget.item?.displayDomain ??
+                                    _url?.host ??
+                                    '',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Edit link',
+                    onPressed: () {},
+                    icon: const Icon(Icons.edit_outlined, size: 20),
+                  ),
+                ],
               ),
             ),
+            const SizedBox(height: 16),
           ],
-          const SizedBox(height: 14),
+          if (widget.item == null) ...[
+            TextField(
+              controller: _content,
+              minLines: 1,
+              maxLines: 4,
+              decoration: InputDecoration(
+                labelText: 'URL or text',
+                hintText: 'https://...',
+                suffixIcon: _url == null
+                    ? null
+                    : IconButton(
+                        tooltip: 'Load preview',
+                        onPressed: _previewing ? null : _preview,
+                        icon: _previewing
+                            ? const Padding(
+                                padding: EdgeInsets.all(12),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.auto_awesome_outlined),
+                      ),
+              ),
+              onSubmitted: (_) => unawaited(_preview()),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 14),
+          ],
+          Text(
+            'Title',
+            style: theme.textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
           TextField(
             controller: _title,
-            decoration: const InputDecoration(labelText: 'Title (optional)'),
+            decoration: const InputDecoration(hintText: 'Add a title...'),
           ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _tag,
-            decoration: const InputDecoration(labelText: 'Tag (optional)'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _notes,
-            maxLines: 3,
-            decoration: const InputDecoration(labelText: 'Notes (optional)'),
-          ),
-          const SizedBox(height: 8),
-          SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Remind me'),
-            subtitle: const Text('Off by default'),
-            value: _remind,
-            onChanged: (value) => setState(() => _remind = value),
+          const SizedBox(height: 14),
+          Container(
+            decoration: BoxDecoration(
+              color: dark ? const Color(0xFF14241F) : Colors.white,
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              border: Border.all(
+                color: dark ? const Color(0xFF263A33) : const Color(0xFFE1EEE8),
+              ),
+            ),
+            child: SwitchListTile.adaptive(
+              secondary: CircleAvatar(
+                radius: 20,
+                backgroundColor: dark
+                    ? const Color(0xFF1B382D)
+                    : AppTheme.paleMint,
+                child: Icon(
+                  Icons.notifications_active_outlined,
+                  size: 20,
+                  color: dark ? AppTheme.mint : AppTheme.brand,
+                ),
+              ),
+              title: const Text(
+                'Remind me (optional)',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              subtitle: const Text('Get notified when it’s time to revisit'),
+              value: _remind,
+              onChanged: (value) => setState(() => _remind = value),
+            ),
           ),
           if (_remind) ...[
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () async {
-                      final value = await showDatePicker(
-                        context: context,
-                        initialDate: _date,
-                        firstDate: DateTime.now(),
-                        lastDate: DateTime.now().add(
-                          const Duration(days: 3650),
-                        ),
-                      );
-                      if (value != null) setState(() => _date = value);
-                    },
-                    icon: const Icon(Icons.calendar_today_outlined),
-                    label: Text(
-                      MaterialLocalizations.of(context).formatShortDate(_date),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () async {
-                      final value = await showTimePicker(
-                        context: context,
-                        initialTime: _time,
-                      );
-                      if (value != null) setState(() => _time = value);
-                    },
-                    icon: const Icon(Icons.schedule_rounded),
-                    label: Text(_time.format(context)),
-                  ),
-                ),
-              ],
+            const SizedBox(height: 16),
+            Text(
+              'Date',
+              style: theme.textTheme.labelLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
             ),
-            const SizedBox(height: 10),
-            DropdownButtonFormField<RepeatType>(
-              initialValue: _repeat,
-              decoration: const InputDecoration(labelText: 'Repeat'),
-              items: RepeatType.values
-                  .map(
-                    (value) => DropdownMenuItem(
-                      value: value,
-                      child: Text(_label(value)),
+            const SizedBox(height: 6),
+            OutlinedButton(
+              onPressed: () async {
+                final value = await showDatePicker(
+                  context: context,
+                  initialDate: _date,
+                  firstDate: DateTime.now(),
+                  lastDate: DateTime.now().add(const Duration(days: 3650)),
+                );
+                if (value != null) setState(() => _date = value);
+              },
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.calendar_today_outlined,
+                    size: 18,
+                    color: dark ? AppTheme.mint : AppTheme.brand,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      _formatFriendlyDate(_date),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                  )
-                  .toList(),
-              onChanged: (value) =>
-                  setState(() => _repeat = value ?? RepeatType.never),
+                  ),
+                  const Icon(Icons.keyboard_arrow_down_rounded, size: 22),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Time',
+              style: theme.textTheme.labelLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 6),
+            OutlinedButton(
+              onPressed: () async {
+                final value = await showTimePicker(
+                  context: context,
+                  initialTime: _time,
+                );
+                if (value != null) setState(() => _time = value);
+              },
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.schedule_rounded,
+                    size: 18,
+                    color: dark ? AppTheme.mint : AppTheme.brand,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      _time.format(context),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const Icon(Icons.keyboard_arrow_down_rounded, size: 22),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Repeat',
+              style: theme.textTheme.labelLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: RepeatType.values
+                    .map(
+                      (value) => Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          label: Text(_label(value)),
+                          selected: _repeat == value,
+                          onSelected: (_) => setState(() => _repeat = value),
+                        ),
+                      ),
+                    )
+                    .toList(),
+              ),
             ),
             if (_repeat == RepeatType.custom) ...[
               const SizedBox(height: 10),
@@ -307,11 +488,54 @@ class _SaveFindSheetState extends State<SaveFindSheet> {
                 onChanged: (value) => setState(() => _customDays = value ?? 2),
               ),
             ],
+            const SizedBox(height: 16),
+            Text(
+              'Snooze (when reminded)',
+              style: theme.textTheme.labelLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: ['10 min', '1 hour', 'Tonight', 'Tomorrow', 'Custom']
+                    .map(
+                      (choice) => Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          label: Text(choice),
+                          selected: _snoozeChoice == choice,
+                          onSelected: (_) =>
+                              setState(() => _snoozeChoice = choice),
+                        ),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ),
           ],
-          const SizedBox(height: 22),
-          FilledButton(
+          const SizedBox(height: 16),
+          Text(
+            'Notes (optional)',
+            style: theme.textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _notes,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              hintText: 'Add a note...',
+              prefixIcon: Icon(Icons.notes_rounded),
+            ),
+          ),
+          const SizedBox(height: 24),
+          FilledButton.icon(
             onPressed: _content.text.trim().isEmpty || _saving ? null : _save,
-            child: Text(_saving ? 'Saving…' : 'Save find'),
+            icon: const Icon(Icons.bookmark_rounded),
+            label: Text(_saving ? 'Saving…' : 'Save find'),
           ),
         ],
       ),
